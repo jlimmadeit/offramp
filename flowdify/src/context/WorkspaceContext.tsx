@@ -93,7 +93,7 @@ interface WorkspaceState {
   handleBucketFileDrop: (
     nodeId: number,
     kindName: NodeKindName,
-    bucketFile: { name: string; type: string; muxUploadId?: string; muxAssetId?: string; dbAudioId?: number; dbEditStyleId?: number }
+    bucketFile: { name: string; type: string; muxUploadId?: string; muxAssetId?: string; muxPlaybackId?: string; dbVideoId?: number; dbAudioId?: number; dbEditStyleId?: number }
   ) => Promise<void>;
 
   postingNodeIds: Set<number>;
@@ -256,7 +256,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const nodeForGroup = allNodes.find((n: DbNode) => n.account_group_id === groupId);
       if (!nodeForGroup) continue;
       if (!agm[nodeForGroup.id]) agm[nodeForGroup.id] = [];
-      agm[nodeForGroup.id].push({
+      agm[nodeForGroup.id]!.push({
         memberId: row.id,
         accountId: row.account_id as number,
         username: acc.username,
@@ -1094,6 +1094,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         type: string;
         muxUploadId?: string;
         muxAssetId?: string;
+        muxPlaybackId?: string;
         dbVideoId?: number;
         dbAudioId?: number;
         dbEditStyleId?: number;

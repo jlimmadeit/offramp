@@ -309,8 +309,8 @@ export default function SchedulePage() {
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dx = e.touches[0]!.clientX - e.touches[1]!.clientX;
+        const dy = e.touches[0]!.clientY - e.touches[1]!.clientY;
         initialDistance = Math.hypot(dx, dy);
         initialSlotH = slotH;
       }
@@ -319,8 +319,8 @@ export default function SchedulePage() {
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 2 || initialDistance === 0) return;
       e.preventDefault();
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dx = e.touches[0]!.clientX - e.touches[1]!.clientX;
+      const dy = e.touches[0]!.clientY - e.touches[1]!.clientY;
       const dist = Math.hypot(dx, dy);
       const scale = dist / initialDistance;
       setSlotH(
@@ -361,7 +361,7 @@ export default function SchedulePage() {
   const accountColorMap = useMemo(() => {
     const m = new Map<number, string>();
     uniqueAccounts.forEach((a, i) => {
-      m.set(a.id, ACCOUNT_COLORS[i % ACCOUNT_COLORS.length]);
+      m.set(a.id, ACCOUNT_COLORS[i % ACCOUNT_COLORS.length]!);
     });
     return m;
   }, [uniqueAccounts]);

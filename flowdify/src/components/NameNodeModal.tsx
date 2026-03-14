@@ -16,6 +16,7 @@ const KIND_LABELS: Record<NodeKindName, string> = {
   edit_styles: "Edit Styles",
   aesthetic: "Aesthetic",
   account_group: "Account",
+  captions: "Captions",
 };
 
 export default function NameNodeModal({
