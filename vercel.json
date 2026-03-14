@@ -1,0 +1,8 @@
+{
+  "buildCommand": "cd flowdify && npm install && npm run build",
+  "outputDirectory": "flowdify/dist",
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
