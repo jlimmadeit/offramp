@@ -151,6 +151,11 @@ function CanvasInner() {
     setEdges(rfEdges);
   }, [dbCurrents, dbNodes, nodeKindsLoaded, getKindName, setEdges, syncingCurrentIds, postingNodeIds]);
 
+  const UNIQUE_PER_AESTHETIC: Set<string> = useMemo(
+    () => new Set(["videos", "audios", "text_hooks", "edit_styles"]),
+    []
+  );
+
   const isValidConnection: IsValidConnection = useCallback(
     (connection: Connection | Edge) => {
       const sourceHandle = connection.sourceHandle;
@@ -162,12 +167,26 @@ function CanvasInner() {
       const targetNode = nodes.find((n) => n.id === connection.target);
       if (!targetNode) return false;
 
-      return (
-        (targetNode.data as { kindName?: string }).kindName ===
-        rule.targetKind
-      );
+      const targetKindName = (targetNode.data as { kindName?: string }).kindName;
+      if (targetKindName !== rule.targetKind) return false;
+
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      if (!sourceNode) return false;
+      const sourceKind = (sourceNode.data as { kindName?: string }).kindName;
+
+      if (sourceKind && UNIQUE_PER_AESTHETIC.has(sourceKind) && targetKindName === "aesthetic") {
+        const alreadyConnected = edges.some((e) => {
+          if (e.target !== connection.target) return false;
+          const existingSource = nodes.find((n) => n.id === e.source);
+          if (!existingSource) return false;
+          return (existingSource.data as { kindName?: string }).kindName === sourceKind;
+        });
+        if (alreadyConnected) return false;
+      }
+
+      return true;
     },
-    [nodes]
+    [nodes, edges, UNIQUE_PER_AESTHETIC]
   );
 
   const onConnect: OnConnect = useCallback(

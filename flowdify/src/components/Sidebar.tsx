@@ -19,7 +19,6 @@ import {
   getTeam,
   type BundleSocialAccount,
 } from "../lib/bundle";
-import PostCalendar from "./PostCalendar";
 
 function CollapsibleSection({
   title,
@@ -1302,12 +1301,8 @@ export default function Sidebar() {
 
   return (
     <aside className="w-[260px] flex-shrink-0 bg-white border-r border-sidebar-border flex flex-col h-full select-none">
-      {/* Logo */}
-      <div className="px-5 py-5 border-b border-sidebar-border">
-        <h1 className="text-[18px] font-semibold text-gray-900 tracking-tight">
-          Flowdify
-        </h1>
-      </div>
+      {/* Spacer for hamburger menu */}
+      <div className="h-[52px] flex-shrink-0" />
 
       {/* Sync button */}
       <div className="px-3 py-3 border-b border-sidebar-border">
@@ -1384,16 +1379,6 @@ export default function Sidebar() {
       {/* Accounts */}
       <CollapsibleSection title="Accounts" defaultOpen={false} flex>
         <AccountsBucket />
-      </CollapsibleSection>
-
-      {/* Other */}
-      <CollapsibleSection title="Other" defaultOpen={false} flex>
-        <div className="mb-1">
-          <span className="text-[10px] text-gray-400 px-1 font-medium uppercase tracking-wider">
-            Post Schedule
-          </span>
-        </div>
-        <PostCalendar />
       </CollapsibleSection>
     </aside>
   );

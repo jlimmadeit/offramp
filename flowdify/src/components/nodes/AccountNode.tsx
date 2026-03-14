@@ -59,6 +59,7 @@ export default function AccountNode({
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [expandedAccounts, setExpandedAccounts] = useState<Set<number>>(new Set());
   const [availableEditsCount, setAvailableEditsCount] = useState(0);
+  const [availableEdits, setAvailableEdits] = useState<{ id: number; name: string; renderUrl: string }[]>([]);
 
   const loadPosts = useCallback(async () => {
     if (members.length === 0) return;
@@ -111,15 +112,23 @@ export default function AccountNode({
 
   const refreshAvailableEdits = useCallback(async () => {
     const editsNodes = findConnectedEditsNodes();
-    if (editsNodes.length === 0) { setAvailableEditsCount(0); return; }
+    if (editsNodes.length === 0) {
+      setAvailableEditsCount(0);
+      setAvailableEdits([]);
+      return;
+    }
 
     const { data: neRows } = await supabase
       .from("node_edits")
-      .select("edit_id, edits(render_url)")
+      .select("edit_id, edits(name, render_url)")
       .in("node_id", editsNodes.map((n) => n.id));
 
     const rendered = (neRows as any[] ?? []).filter((r) => r.edits?.render_url);
-    if (rendered.length === 0) { setAvailableEditsCount(0); return; }
+    if (rendered.length === 0) {
+      setAvailableEditsCount(0);
+      setAvailableEdits([]);
+      return;
+    }
 
     const editIds = rendered.map((r: any) => r.edit_id);
     const { data: posted } = await supabase
@@ -128,7 +137,16 @@ export default function AccountNode({
       .in("edit_id", editIds);
     const postedIds = new Set((posted ?? []).map((r) => r.edit_id));
 
-    setAvailableEditsCount(editIds.filter((id: number) => !postedIds.has(id)).length);
+    const ready = rendered
+      .filter((r: any) => !postedIds.has(r.edit_id))
+      .map((r: any) => ({
+        id: r.edit_id as number,
+        name: (r.edits?.name ?? "Untitled") as string,
+        renderUrl: r.edits.render_url as string,
+      }));
+
+    setAvailableEditsCount(ready.length);
+    setAvailableEdits(ready);
   }, [findConnectedEditsNodes]);
 
   useEffect(() => {
@@ -358,6 +376,11 @@ export default function AccountNode({
     });
   };
 
+  const now = new Date().toISOString();
+  const upcomingPosts = posts.filter(
+    (p) => p.scheduledTime && p.scheduledTime > now
+  );
+
   const formatDate = (iso: string) => {
     try {
       const d = new Date(iso);
@@ -433,7 +456,6 @@ export default function AccountNode({
         {hasMembers ? (
           members.map((m) => {
             const color = PLATFORM_COLORS[m.platform ?? ""] ?? "#888";
-            const accountPosts = posts.filter((p) => p.accountId === m.accountId);
             const isExpanded = expandedAccounts.has(m.accountId);
 
             return (
@@ -471,21 +493,24 @@ export default function AccountNode({
                       </span>
                     </div>
                   </div>
-                  {accountPosts.length > 0 && (
-                    <button
-                      onClick={() => toggleAccount(m.accountId)}
-                      className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium text-gray-500 hover:bg-gray-100 transition-colors flex-shrink-0 nopan nodrag"
-                    >
-                      <span>{accountPosts.length}</span>
-                      <svg
-                        className={`w-2.5 h-2.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                        viewBox="0 0 10 10"
-                        fill="currentColor"
+                  {(() => {
+                    const accountUpcoming = upcomingPosts.filter((p) => p.accountId === m.accountId);
+                    return accountUpcoming.length > 0 ? (
+                      <button
+                        onClick={() => toggleAccount(m.accountId)}
+                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium text-gray-500 hover:bg-gray-100 transition-colors flex-shrink-0 nopan nodrag"
                       >
-                        <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  )}
+                        <span>{accountUpcoming.length}</span>
+                        <svg
+                          className={`w-2.5 h-2.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          viewBox="0 0 10 10"
+                          fill="currentColor"
+                        >
+                          <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    ) : null;
+                  })()}
                   <button
                     onClick={() => removeAccountGroupMember(m.memberId)}
                     className="text-[10px] text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
@@ -494,34 +519,37 @@ export default function AccountNode({
                   </button>
                 </div>
 
-                {isExpanded && accountPosts.length > 0 && (
-                  <div className="ml-10 mt-1 mb-1 flex flex-col gap-0.5 nopan nodrag nowheel overflow-y-auto" style={{ maxHeight: 120 }}>
-                    {accountPosts.map((p) => (
-                      <div
-                        key={p.id}
-                        className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] ${
-                          p.bundlePostId ? "bg-gray-50" : "bg-green-50"
-                        }`}
-                      >
-                        {!p.bundlePostId && (
-                          <svg className="w-2.5 h-2.5 animate-spin text-green-500 flex-shrink-0" viewBox="0 0 16 16" fill="none">
-                            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                            <path d="M14.5 8a6.5 6.5 0 00-6.5-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          </svg>
-                        )}
-                        <span className="font-medium text-gray-700 truncate flex-shrink-0" style={{ maxWidth: 60 }}>
-                          {p.editName}
-                        </span>
-                        <span className="text-gray-400 flex-shrink-0">
-                          {formatDate(p.scheduledTime)}
-                        </span>
-                        <span className="text-gray-400 truncate flex-1" title={p.platformCaption}>
-                          {p.bundlePostId ? p.platformCaption : "Uploading…"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {isExpanded && (() => {
+                  const accountUpcoming = upcomingPosts.filter((p) => p.accountId === m.accountId);
+                  return accountUpcoming.length > 0 ? (
+                    <div className="ml-10 mt-1 mb-1 flex flex-col gap-0.5 nopan nodrag nowheel overflow-y-auto" style={{ maxHeight: 120 }}>
+                      {accountUpcoming.map((p) => (
+                        <div
+                          key={p.id}
+                          className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] ${
+                            p.bundlePostId ? "bg-gray-50" : "bg-green-50"
+                          }`}
+                        >
+                          {!p.bundlePostId && (
+                            <svg className="w-2.5 h-2.5 animate-spin text-green-500 flex-shrink-0" viewBox="0 0 16 16" fill="none">
+                              <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                              <path d="M14.5 8a6.5 6.5 0 00-6.5-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            </svg>
+                          )}
+                          <span className="font-medium text-gray-700 truncate flex-shrink-0" style={{ maxWidth: 60 }}>
+                            {p.editName}
+                          </span>
+                          <span className="text-gray-400 flex-shrink-0">
+                            {formatDate(p.scheduledTime)}
+                          </span>
+                          <span className="text-gray-400 truncate flex-1" title={p.platformCaption}>
+                            {p.bundlePostId ? p.platformCaption : "Uploading…"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
               </div>
             );
           })

@@ -3,7 +3,13 @@ import { Handle, Position } from "@xyflow/react";
 import NodeShell from "../NodeShell";
 import { supabase } from "../../lib/supabase";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { getMuxPlaybackId, muxThumbnailUrl, attachHls } from "../../lib/mux";
+import {
+  getMuxPlaybackId,
+  muxThumbnailUrl,
+  attachHls,
+  uploadFileToMux,
+  waitForPlaybackId,
+} from "../../lib/mux";
 
 interface VideosNodeData {
   dbId: number;
@@ -20,12 +26,22 @@ interface VideoRow {
   duration: number | null;
 }
 
+interface UploadingVideo {
+  id: string;
+  name: string;
+  progress: number;
+  status: "uploading" | "processing" | "error";
+}
+
 export default function VideosNode({ data }: { data: VideosNodeData }) {
   const [videos, setVideos] = useState<VideoRow[]>([]);
-  const { loadWorkspace, dropVersion, removeNodeVideo } = useWorkspace();
+  const { loadWorkspace, dropVersion, removeNodeVideo, handleBucketFileDrop } =
+    useWorkspace();
   const [previewId, setPreviewId] = useState<number | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const hlsCleanupRef = useRef<(() => void) | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploads, setUploads] = useState<UploadingVideo[]>([]);
 
   const loadVideos = useCallback(async () => {
     const { data: rows } = await supabase
@@ -84,14 +100,117 @@ export default function VideosNode({ data }: { data: VideosNodeData }) {
     };
   }, []);
 
+  const processUpload = useCallback(
+    async (file: File) => {
+      const uploadId = crypto.randomUUID();
+      const entry: UploadingVideo = {
+        id: uploadId,
+        name: file.name,
+        progress: 0,
+        status: "uploading",
+      };
+      setUploads((prev) => [...prev, entry]);
+
+      try {
+        const result = await uploadFileToMux(file, (pct) => {
+          setUploads((prev) =>
+            prev.map((u) => (u.id === uploadId ? { ...u, progress: pct } : u))
+          );
+        });
+
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === uploadId ? { ...u, status: "processing", progress: 100 } : u
+          )
+        );
+
+        const resolved = await waitForPlaybackId(result.upload_id);
+        const playbackId = resolved.playback_id!;
+        const renditionName = resolved.mp4_rendition_name ?? "highest.mp4";
+        const muxUrl = `https://stream.mux.com/${playbackId}/${renditionName}`;
+        const thumbUrl = muxThumbnailUrl(playbackId, 640, 360);
+
+        const insertData: Record<string, unknown> = {
+          name: file.name,
+          url: muxUrl,
+          thumbnail_url: thumbUrl,
+        };
+        if (resolved.duration) insertData.duration = resolved.duration;
+
+        const { data: video } = await supabase
+          .from("videos")
+          .insert(insertData)
+          .select("id")
+          .single();
+
+        if (video) {
+          await handleBucketFileDrop(data.dbId, "videos", {
+            name: file.name,
+            type: "video",
+            dbVideoId: video.id,
+          });
+        }
+
+        setUploads((prev) => prev.filter((u) => u.id !== uploadId));
+      } catch (err) {
+        console.error("Direct video upload failed:", err);
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === uploadId ? { ...u, status: "error" } : u
+          )
+        );
+      }
+    },
+    [data.dbId, handleBucketFileDrop]
+  );
+
+  const handleFileSelect = useCallback(
+    (fileList: FileList | null) => {
+      if (!fileList) return;
+      Array.from(fileList).forEach((file) => {
+        if (file.type.startsWith("video/")) processUpload(file);
+      });
+    },
+    [processUpload]
+  );
+
   const previewVideo = previewId != null ? videos.find((v) => v.id === previewId) : null;
+  const hasContent = videos.length > 0 || uploads.length > 0;
 
   return (
     <NodeShell nodeId={data.dbId} kindName="videos" title={data.label}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => {
+          handleFileSelect(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
       <div className="min-h-[48px]">
-        {videos.length === 0 ? (
-          <div className="text-[11px] text-gray-400 text-center py-3">
-            Drop videos from video bucket
+        {!hasContent ? (
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "copy";
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleFileSelect(e.dataTransfer.files);
+            }}
+            className="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center cursor-pointer hover:border-node-videos/40 hover:bg-purple-50/30 transition-colors duration-150 nopan nodrag"
+          >
+            <div className="text-gray-300 text-[16px] mb-0.5">↑</div>
+            <p className="text-[11px] text-gray-400">
+              Drop videos or click to upload
+            </p>
           </div>
         ) : (
           <>
@@ -145,6 +264,49 @@ export default function VideosNode({ data }: { data: VideosNodeData }) {
                 ))}
               </div>
             </div>
+            {uploads.length > 0 && (
+              <div className="mt-1.5 flex flex-col gap-1">
+                {uploads.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-gray-50"
+                  >
+                    <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[9px] flex-shrink-0 bg-node-videos">
+                      {u.status === "error" ? "!" : "↑"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] text-gray-600 truncate">
+                        {u.name}
+                      </p>
+                      {u.status === "uploading" && (
+                        <div className="mt-0.5 h-[2px] bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-node-videos rounded-full transition-all duration-300"
+                            style={{ width: `${u.progress}%` }}
+                          />
+                        </div>
+                      )}
+                      {u.status === "processing" && (
+                        <p className="text-[9px] text-node-videos">
+                          Processing...
+                        </p>
+                      )}
+                      {u.status === "error" && (
+                        <p className="text-[9px] text-red-500">Failed</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-1.5 w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[10px] text-gray-400 hover:text-node-videos hover:bg-purple-50/50 transition-colors duration-150 nopan nodrag"
+            >
+              <span className="text-[11px]">+</span> Upload videos
+            </button>
+
             {previewVideo?.playbackId && (
               <div className="mt-2 rounded-md overflow-hidden bg-black">
                 <video

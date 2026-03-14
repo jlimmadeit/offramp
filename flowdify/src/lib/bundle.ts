@@ -150,3 +150,37 @@ export async function rescheduleBundlePost(
     throw new Error(err.message ?? `Reschedule failed (${res.status})`);
   }
 }
+
+export interface BundlePostAnalyticsItem {
+  id: string;
+  profilePostId: string;
+  impressions: number;
+  impressionsUnique: number;
+  views: number;
+  viewsUnique: number;
+  likes: number;
+  dislikes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  createdAt: string;
+}
+
+export async function getBundlePostAnalytics(
+  bundlePostId: string,
+  platformType: BundlePlatform
+): Promise<BundlePostAnalyticsItem[]> {
+  const params = new URLSearchParams({
+    postId: bundlePostId,
+    platformType,
+  });
+  const res = await fetch(`${PROXY_BASE}/analytics/post?${params}`);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? `Post analytics failed (${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.items ?? [];
+}

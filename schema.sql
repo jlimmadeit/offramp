@@ -153,11 +153,25 @@ CREATE TABLE public.nodes (
   CONSTRAINT nodes_kind_id_fkey FOREIGN KEY (kind_id) REFERENCES public.node_kinds(id),
   CONSTRAINT nodes_account_group_id_fkey FOREIGN KEY (account_group_id) REFERENCES public.account_groups(id)
 );
+CREATE TABLE public.post_statistics (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  stat_date date,
+  post_id bigint,
+  views bigint,
+  likes bigint,
+  shares bigint,
+  comments bigint,
+  saves bigint,
+  CONSTRAINT post_statistics_pkey PRIMARY KEY (id),
+  CONSTRAINT post_statistics_post_id_fkey FOREIGN KEY (post_id) REFERENCES public.posts(id),
+  CONSTRAINT post_statistics_post_id_stat_date_key UNIQUE (post_id, stat_date)
+);
 CREATE TABLE public.posts (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   account_id bigint,
-  edit_id bigint,
+  edit_id bigint UNIQUE,
   bundle_post_id text,
   platform_post_id text,
   platform_caption text,
