@@ -1,6 +1,54 @@
 import { defineConfig, loadEnv, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import crypto from "crypto";
+
+const ALGO = "aes-256-gcm";
+const IV_LEN = 12;
+const TAG_LEN = 16;
+
+function deriveEncryptionKey(secret: string): Buffer {
+  return crypto.createHash("sha256").update(secret).digest();
+}
+
+function encryptKey(plaintext: string, secret: string): string {
+  const key = deriveEncryptionKey(secret);
+  const iv = crypto.randomBytes(IV_LEN);
+  const cipher = crypto.createCipheriv(ALGO, key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]).toString("base64");
+}
+
+function decryptKey(blob: string, secret: string): string {
+  const key = deriveEncryptionKey(secret);
+  const buf = Buffer.from(blob, "base64");
+  const iv = buf.subarray(0, IV_LEN);
+  const tag = buf.subarray(IV_LEN, IV_LEN + TAG_LEN);
+  const encrypted = buf.subarray(IV_LEN + TAG_LEN);
+  const decipher = crypto.createDecipheriv(ALGO, key, iv);
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString("utf8");
+}
+
+const SCRYPT_KEYLEN = 64;
+const SCRYPT_SALT_LEN = 16;
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(SCRYPT_SALT_LEN);
+  const derived = crypto.scryptSync(password, salt, SCRYPT_KEYLEN);
+  return salt.toString("hex") + ":" + derived.toString("hex");
+}
+
+function verifyPassword(password: string, stored: string): boolean {
+  const [saltHex, hashHex] = stored.split(":");
+  if (!saltHex || !hashHex) return false;
+  const salt = Buffer.from(saltHex, "hex");
+  const expected = Buffer.from(hashHex, "hex");
+  const derived = crypto.scryptSync(password, salt, SCRYPT_KEYLEN);
+  return crypto.timingSafeEqual(derived, expected);
+}
 
 function muxUploadPlugin(): PluginOption {
   let muxTokenId: string;
@@ -293,17 +341,152 @@ function muxUploadPlugin(): PluginOption {
 }
 
 function flowstageProxyPlugin(): PluginOption {
-  let flowstageKey: string;
+  let encryptionSecret: string;
 
   return {
     name: "flowstage-proxy",
     configResolved(config) {
       const env = loadEnv(config.mode, path.resolve(__dirname, ".."), "");
-      flowstageKey = env.VITE_FLOWSTAGE_KEY ?? "";
+      encryptionSecret = env.ENCRYPTION_SECRET ?? "";
     },
     configureServer(server) {
+      server.middlewares.use("/api/encrypt-key", async (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: "Method not allowed" }));
+          return;
+        }
+        if (!encryptionSecret) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: "ENCRYPTION_SECRET not configured" }));
+          return;
+        }
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(chunk as Buffer);
+          const { key } = JSON.parse(Buffer.concat(chunks).toString());
+          if (!key || typeof key !== "string") {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: "Missing key" }));
+            return;
+          }
+          const encrypted = encryptKey(key.trim(), encryptionSecret);
+          res.setHeader("Content-Type", "application/json");
+          res.statusCode = 200;
+          res.end(JSON.stringify({ encrypted }));
+        } catch (err) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Encryption failed" }));
+        }
+      });
+
+      server.middlewares.use("/api/decrypt-key", async (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: "Method not allowed" }));
+          return;
+        }
+        if (!encryptionSecret) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: "ENCRYPTION_SECRET not configured" }));
+          return;
+        }
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(chunk as Buffer);
+          const { encrypted } = JSON.parse(Buffer.concat(chunks).toString());
+          if (!encrypted || typeof encrypted !== "string") {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: "Missing encrypted key" }));
+            return;
+          }
+          const plaintext = decryptKey(encrypted, encryptionSecret);
+          res.setHeader("Content-Type", "application/json");
+          res.statusCode = 200;
+          res.end(JSON.stringify({ key: plaintext }));
+        } catch {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: "Failed to decrypt — key may be corrupted" }));
+        }
+      });
+
+      server.middlewares.use("/api/auth/hash-password", async (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: "Method not allowed" }));
+          return;
+        }
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(chunk as Buffer);
+          const { password } = JSON.parse(Buffer.concat(chunks).toString());
+          if (!password || typeof password !== "string") {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: "Missing password" }));
+            return;
+          }
+          const hash = hashPassword(password);
+          res.setHeader("Content-Type", "application/json");
+          res.statusCode = 200;
+          res.end(JSON.stringify({ hash }));
+        } catch (err) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Hash failed" }));
+        }
+      });
+
+      server.middlewares.use("/api/auth/verify-password", async (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: "Method not allowed" }));
+          return;
+        }
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(chunk as Buffer);
+          const { password, hash } = JSON.parse(Buffer.concat(chunks).toString());
+          if (!password || !hash) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: "Missing password or hash" }));
+            return;
+          }
+          const valid = verifyPassword(password, hash);
+          res.setHeader("Content-Type", "application/json");
+          res.statusCode = 200;
+          res.end(JSON.stringify({ valid }));
+        } catch {
+          res.statusCode = 200;
+          res.end(JSON.stringify({ valid: false }));
+        }
+      });
+
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith("/api/flowstage/")) return next();
+
+        const encryptedKey = req.headers["x-flowstage-key"] as string | undefined;
+        if (!encryptedKey) {
+          res.statusCode = 401;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ detail: "No Flowstage API key provided. Add your key in Settings." }));
+          return;
+        }
+
+        if (!encryptionSecret) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ detail: "ENCRYPTION_SECRET not configured on server." }));
+          return;
+        }
+
+        let apiKey: string;
+        try {
+          apiKey = decryptKey(encryptedKey, encryptionSecret);
+        } catch {
+          res.statusCode = 401;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ detail: "Invalid or corrupted API key. Re-enter your key in Settings." }));
+          return;
+        }
 
         const upstream = req.url.replace(
           "/api/flowstage/",
@@ -311,7 +494,7 @@ function flowstageProxyPlugin(): PluginOption {
         );
 
         const headers: Record<string, string> = {
-          "X-API-Key": flowstageKey,
+          "X-API-Key": apiKey,
         };
 
         let body: string | undefined;

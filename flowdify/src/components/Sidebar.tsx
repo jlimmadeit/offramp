@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { useAuth } from "../context/AuthContext";
 import { ACCENT_COLORS, KIND_ICONS, type NodeKindName } from "../lib/types";
 import {
   uploadFileToMux,
@@ -129,6 +130,7 @@ interface BucketFile {
 }
 
 function VideoBucket() {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<BucketFile[]>([]);
   const dbLoadedRef = useRef(false);
@@ -138,7 +140,9 @@ function VideoBucket() {
     dbLoadedRef.current = true;
 
     (async () => {
-      const videosRes = await supabase.from("videos").select("id, name, url, duration");
+      let query = supabase.from("videos").select("id, name, url, duration");
+      if (user) query = query.eq("user_id", user.id);
+      const videosRes = await query;
 
       const dbFiles: BucketFile[] = [];
 
@@ -210,6 +214,7 @@ function VideoBucket() {
           thumbnail_url: thumbUrl,
         };
         if (resolved.duration) insertData.duration = resolved.duration;
+        if (user) insertData.user_id = user.id;
         const { data: video } = await supabase
           .from("videos")
           .insert(insertData)
@@ -506,6 +511,7 @@ interface AudioBucketItem {
 }
 
 function AudioBucket({ reloadKey }: { reloadKey: number }) {
+  const { user } = useAuth();
   const [audios, setAudios] = useState<AudioBucketItem[]>([]);
   const dbLoadedRef = useRef(false);
   const [playingId, setPlayingId] = useState<number | null>(null);
@@ -564,11 +570,13 @@ function AudioBucket({ reloadKey }: { reloadKey: number }) {
   }, [stopPlayback]);
 
   const loadFromDb = useCallback(async () => {
-    const { data: rows } = await supabase
+    let query = supabase
       .from("audios")
       .select("id, flowstage_uuid, name, song_duration, url, start_time, end_time")
       .not("flowstage_uuid", "is", null)
       .order("name");
+    if (user) query = query.eq("user_id", user.id);
+    const { data: rows } = await query;
 
     if (!rows) return;
 
@@ -677,14 +685,17 @@ interface EditStyleBucketItem {
 }
 
 function EditStyleBucket({ reloadKey }: { reloadKey: number }) {
+  const { user } = useAuth();
   const [styles, setStyles] = useState<EditStyleBucketItem[]>([]);
   const dbLoadedRef = useRef(false);
 
   const loadFromDb = useCallback(async () => {
-    const { data: rows } = await supabase
+    let query = supabase
       .from("edit_styles")
       .select("id, name")
       .order("name");
+    if (user) query = query.eq("user_id", user.id);
+    const { data: rows } = await query;
 
     if (rows) {
       setStyles(rows.map((r) => ({ dbId: r.id, name: r.name ?? "Untitled" })));
@@ -778,10 +789,12 @@ function LinkAccountModal({
   open,
   onClose,
   onAccountsLinked,
+  userId,
 }: {
   open: boolean;
   onClose: () => void;
   onAccountsLinked: () => void;
+  userId: number | null;
 }) {
   const [teamName, setTeamName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -852,7 +865,7 @@ function LinkAccountModal({
           .eq("bundle_id", sa.id)
           .maybeSingle();
 
-        const row = {
+        const row: Record<string, unknown> = {
           username: sa.username,
           display_name: sa.displayName,
           platform: sa.type,
@@ -861,6 +874,7 @@ function LinkAccountModal({
           bundle_id: sa.id,
           profile_picture_url: sa.avatarUrl,
         };
+        if (userId) row.user_id = userId;
 
         if (existing) {
           const { error: updErr } = await supabase
@@ -1014,18 +1028,21 @@ function LinkAccountModal({
 }
 
 function AccountsBucket() {
+  const { user } = useAuth();
   const [accounts, setAccounts] = useState<DbAccountRow[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const dbLoadedRef = useRef(false);
 
   const loadFromDb = useCallback(async () => {
-    const { data: rows } = await supabase
+    let query = supabase
       .from("accounts")
       .select("id, username, display_name, platform, bundle_team_id, bundle_team_name, bundle_id, profile_picture_url, follower_ct")
       .order("created_at", { ascending: false });
+    if (user) query = query.eq("user_id", user.id);
+    const { data: rows } = await query;
 
     if (rows) setAccounts(rows);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!dbLoadedRef.current) {
@@ -1155,6 +1172,7 @@ function AccountsBucket() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onAccountsLinked={loadFromDb}
+        userId={user?.id ?? null}
       />
     </div>
   );
@@ -1162,6 +1180,7 @@ function AccountsBucket() {
 
 export default function Sidebar() {
   const { nodeKinds, nodeKindsLoaded } = useWorkspace();
+  const { user } = useAuth();
   const [syncing, setSyncing] = useState(false);
   const [lastSyncError, setLastSyncError] = useState<string | null>(null);
   const [syncVersion, setSyncVersion] = useState(0);
@@ -1169,6 +1188,7 @@ export default function Sidebar() {
   const syncFromFlowstage = useCallback(async () => {
     setSyncing(true);
     setLastSyncError(null);
+    const currentUserId = user?.id ?? null;
     try {
       const aesthetics = await getFlowstageAesthetics();
       const presetEntries: { name: string; sourceAestheticId: string }[] = [];
@@ -1209,15 +1229,17 @@ export default function Sidebar() {
                 .eq("id", existing.id);
               audioDbId = existing.id;
             } else {
+              const audioInsert: Record<string, unknown> = {
+                flowstage_uuid: fsAudio.id,
+                name: fsAudio.name,
+                song_duration: fsAudio.duration,
+                start_time: firstSection?.start_time ?? null,
+                end_time: firstSection?.end_time ?? null,
+              };
+              if (currentUserId) audioInsert.user_id = currentUserId;
               const { data: inserted, error } = await supabase
                 .from("audios")
-                .insert({
-                  flowstage_uuid: fsAudio.id,
-                  name: fsAudio.name,
-                  song_duration: fsAudio.duration,
-                  start_time: firstSection?.start_time ?? null,
-                  end_time: firstSection?.end_time ?? null,
-                })
+                .insert(audioInsert)
                 .select("id")
                 .single();
               if (error || !inserted) {
@@ -1270,9 +1292,14 @@ export default function Sidebar() {
             console.error("[Sync] edit_styles update failed:", updErr.message);
           }
         } else {
+          const esInsert: Record<string, unknown> = {
+            name: entry.name,
+            flowstage_aesthetic_id: entry.sourceAestheticId,
+          };
+          if (currentUserId) esInsert.user_id = currentUserId;
           const { error: insErr } = await supabase
             .from("edit_styles")
-            .insert({ name: entry.name, flowstage_aesthetic_id: entry.sourceAestheticId });
+            .insert(esInsert);
           if (insErr) {
             console.error("[Sync] edit_styles insert failed:", insErr.message);
           }
@@ -1286,7 +1313,7 @@ export default function Sidebar() {
     } finally {
       setSyncing(false);
     }
-  }, []);
+  }, [user]);
 
   const orderedKinds: NodeKindName[] = [
     "account_group",

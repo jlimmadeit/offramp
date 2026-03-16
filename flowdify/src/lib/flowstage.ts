@@ -1,7 +1,21 @@
 const FLOWSTAGE_PROXY = "/api/flowstage";
 
+let _flowstageKey: string | null = null;
+
+export function setFlowstageKey(key: string | null) {
+  _flowstageKey = key;
+}
+
 async function fsFetch(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(`${FLOWSTAGE_PROXY}${path}`, init);
+  const headers = new Headers(init?.headers);
+  if (_flowstageKey) {
+    headers.set("X-Flowstage-Key", _flowstageKey);
+  }
+
+  const res = await fetch(`${FLOWSTAGE_PROXY}${path}`, {
+    ...init,
+    headers,
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let detail = `Flowstage API error (${res.status})`;

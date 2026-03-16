@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "./AuthContext";
 import {
   updateFlowstageAesthetic,
   addVideoToFlowstageAesthetic,
@@ -117,6 +118,9 @@ export function useWorkspace() {
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+
   const [nodeKinds, setNodeKinds] = useState<NodeKind[]>([]);
   const [nodeKindsLoaded, setNodeKindsLoaded] = useState(false);
   const [dbNodes, setDbNodes] = useState<DbNode[]>([]);
@@ -184,10 +188,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
 
   const loadWorkspace = useCallback(async () => {
+    const nodesQuery = userId
+      ? supabase.from("nodes").select("*").eq("user_id", userId)
+      : supabase.from("nodes").select("*");
+
     const [kindsRes, nodesRes, currentsRes, nvRes, nsRes, nthRes, neRes, nesRes, agmRes, ncRes] =
       await Promise.all([
         supabase.from("node_kinds").select("*"),
-        supabase.from("nodes").select("*"),
+        nodesQuery,
         supabase.from("currents").select("*"),
         supabase.from("node_videos").select("id, node_id"),
         supabase.from("node_audios").select("id, node_id"),
@@ -267,7 +275,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       });
     }
     setAccountGroupMembers(agm);
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     loadWorkspace();
@@ -288,6 +296,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         kind_id: kindId,
       };
       if (flowstageUuid) row.flowstage_uuid = flowstageUuid;
+      if (userId) row.user_id = userId;
 
       const { data, error } = await supabase
         .from("nodes")
@@ -301,7 +310,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setDbNodes((prev) => [...prev, data]);
       return data;
     },
-    []
+    [userId]
   );
 
   const updateNodePosition = useCallback(
@@ -1143,9 +1152,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           if (playbackId) {
             thumbUrl = `https://image.mux.com/${playbackId}/thumbnail.jpg?width=640&height=360&fit_mode=smartcrop`;
           }
+          const vidRow: Record<string, unknown> = { name: bucketFile.name, url: muxUrl, thumbnail_url: thumbUrl };
+          if (userId) vidRow.user_id = userId;
           const { data: video, error: vidErr } = await supabase
             .from("videos")
-            .insert({ name: bucketFile.name, url: muxUrl, thumbnail_url: thumbUrl })
+            .insert(vidRow)
             .select("id")
             .single();
           if (vidErr || !video) {
@@ -1230,7 +1241,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setDropVersion((v) => v + 1);
       await loadWorkspace();
     },
-    [loadWorkspace, findConnectedAestheticFromDb, syncVideoToFlowstage, syncAudioToFlowstage, addSyncing, removeSyncing]
+    [userId, loadWorkspace, findConnectedAestheticFromDb, syncVideoToFlowstage, syncAudioToFlowstage, addSyncing, removeSyncing]
   );
 
   const handleAccountDrop = useCallback(
@@ -1251,9 +1262,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       let groupId = node.account_group_id;
 
       if (!groupId) {
+        const groupRow: Record<string, unknown> = { name: node.name };
+        if (userId) groupRow.user_id = userId;
         const { data: group, error: gErr } = await supabase
           .from("account_groups")
-          .insert({ name: node.name })
+          .insert(groupRow)
           .select("id")
           .single();
         if (gErr || !group) {
@@ -1305,7 +1318,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         ],
       }));
     },
-    [dbNodes]
+    [userId, dbNodes]
   );
 
   const removeAccountGroupMember = useCallback(

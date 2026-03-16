@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 import { rescheduleBundlePost } from "../lib/bundle";
 
 interface CalendarPost {
@@ -215,6 +216,7 @@ function PostDetailModal({
 /* ─── Main Component ─── */
 
 export default function SchedulePage() {
+  const { user } = useAuth();
   const [view, setView] = useState<CalendarView>("week");
   const [anchor, setAnchor] = useState(() => {
     const d = new Date();
@@ -236,13 +238,15 @@ export default function SchedulePage() {
   }, []);
 
   const fetchPosts = useCallback(async () => {
-    const { data } = await supabase
+    let query = supabase
       .from("posts")
       .select(
         "id, scheduled_time, bundle_post_id, account_id, accounts(username, display_name, platform), edits(name)"
       )
       .not("scheduled_time", "is", null)
       .order("scheduled_time");
+    if (user) query = query.eq("user_id", user.id);
+    const { data } = await query;
 
     if (!data) return;
 
@@ -259,7 +263,7 @@ export default function SchedulePage() {
         editName: r.edits?.name ?? "Untitled",
       }))
     );
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchPosts();

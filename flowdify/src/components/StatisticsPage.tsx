@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 import {
   getBundlePostAnalytics,
   type BundlePostAnalyticsItem,
@@ -107,6 +108,7 @@ function EmptyState() {
 }
 
 export default function StatisticsPage() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -122,11 +124,13 @@ export default function StatisticsPage() {
     setLoading(true);
     setStatus("Fetching posts…");
     try {
-      const { data: posts, error: postsErr } = await supabase
+      let postsQuery = supabase
         .from("posts")
         .select("id, bundle_post_id, platform, platform_post_id")
         .not("bundle_post_id", "is", null)
         .not("platform_post_id", "is", null);
+      if (user) postsQuery = postsQuery.eq("user_id", user.id);
+      const { data: posts, error: postsErr } = await postsQuery;
 
       if (postsErr) throw postsErr;
       if (!posts || posts.length === 0) {
@@ -217,7 +221,7 @@ export default function StatisticsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   const loadCharts = useCallback(
     async (

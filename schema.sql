@@ -15,7 +15,9 @@ CREATE TABLE public.account_groups (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   name text,
   max_post_per_account_per_day bigint DEFAULT '3'::bigint,
-  CONSTRAINT account_groups_pkey PRIMARY KEY (id)
+  user_id bigint,
+  CONSTRAINT account_groups_pkey PRIMARY KEY (id),
+  CONSTRAINT account_groups_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.accounts (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -29,7 +31,9 @@ CREATE TABLE public.accounts (
   follower_ct bigint,
   average_views bigint,
   bundle_id text,
-  CONSTRAINT accounts_pkey PRIMARY KEY (id)
+  user_id bigint,
+  CONSTRAINT accounts_pkey PRIMARY KEY (id),
+  CONSTRAINT accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.artists (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -48,8 +52,10 @@ CREATE TABLE public.audios (
   song_duration double precision,
   start_time double precision,
   end_time double precision,
+  user_id bigint,
   CONSTRAINT audios_pkey PRIMARY KEY (id),
-  CONSTRAINT audios_artist_id_fkey FOREIGN KEY (artist_id) REFERENCES public.artists(id)
+  CONSTRAINT audios_artist_id_fkey FOREIGN KEY (artist_id) REFERENCES public.artists(id),
+  CONSTRAINT audios_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.currents (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -65,7 +71,9 @@ CREATE TABLE public.edit_styles (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   name text,
   flowstage_aesthetic_id text,
-  CONSTRAINT edit_styles_pkey PRIMARY KEY (id)
+  user_id bigint,
+  CONSTRAINT edit_styles_pkey PRIMARY KEY (id),
+  CONSTRAINT edit_styles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.edits (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -74,7 +82,9 @@ CREATE TABLE public.edits (
   is_approved boolean,
   render_url text,
   flowstage_edit_id text,
-  CONSTRAINT edits_pkey PRIMARY KEY (id)
+  user_id bigint,
+  CONSTRAINT edits_pkey PRIMARY KEY (id),
+  CONSTRAINT edits_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.node_audios (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -147,11 +157,13 @@ CREATE TABLE public.nodes (
   audio_id bigint,
   account_group_id bigint,
   flowstage_uuid text,
+  user_id bigint,
   CONSTRAINT nodes_pkey PRIMARY KEY (id),
   CONSTRAINT nodes_artist_id_fkey FOREIGN KEY (artist_id) REFERENCES public.artists(id),
   CONSTRAINT nodes_song_id_fkey FOREIGN KEY (audio_id) REFERENCES public.audios(id),
   CONSTRAINT nodes_kind_id_fkey FOREIGN KEY (kind_id) REFERENCES public.node_kinds(id),
-  CONSTRAINT nodes_account_group_id_fkey FOREIGN KEY (account_group_id) REFERENCES public.account_groups(id)
+  CONSTRAINT nodes_account_group_id_fkey FOREIGN KEY (account_group_id) REFERENCES public.account_groups(id),
+  CONSTRAINT nodes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.post_statistics (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -164,8 +176,7 @@ CREATE TABLE public.post_statistics (
   comments bigint,
   saves bigint,
   CONSTRAINT post_statistics_pkey PRIMARY KEY (id),
-  CONSTRAINT post_statistics_post_id_fkey FOREIGN KEY (post_id) REFERENCES public.posts(id),
-  CONSTRAINT post_statistics_post_id_stat_date_key UNIQUE (post_id, stat_date)
+  CONSTRAINT post_statistics_post_id_fkey FOREIGN KEY (post_id) REFERENCES public.posts(id)
 );
 CREATE TABLE public.posts (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -178,9 +189,22 @@ CREATE TABLE public.posts (
   platform text,
   scheduled_time timestamp with time zone,
   post_url text,
+  user_id bigint,
   CONSTRAINT posts_pkey PRIMARY KEY (id),
   CONSTRAINT posts_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id),
-  CONSTRAINT posts_edit_id_fkey FOREIGN KEY (edit_id) REFERENCES public.edits(id)
+  CONSTRAINT posts_edit_id_fkey FOREIGN KEY (edit_id) REFERENCES public.edits(id),
+  CONSTRAINT posts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.users (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  first_name text,
+  last_name text,
+  email_address text,
+  password text,
+  code text,
+  flowstage_key text,
+  CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.videos (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -192,5 +216,7 @@ CREATE TABLE public.videos (
   height bigint,
   thumbnail_url text,
   static_rendition_url text,
-  CONSTRAINT videos_pkey PRIMARY KEY (id)
+  user_id bigint,
+  CONSTRAINT videos_pkey PRIMARY KEY (id),
+  CONSTRAINT videos_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
