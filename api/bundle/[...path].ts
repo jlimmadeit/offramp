@@ -38,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "x-api-key": apiKey,
   };
 
-  let body: string | Uint8Array | undefined;
+  let body: BodyInit | undefined;
   if (
     req.method === "POST" ||
     req.method === "PATCH" ||
@@ -54,7 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const merged = new Uint8Array(totalLen);
       let offset = 0;
       for (const c of chunks) { merged.set(c, offset); offset += c.length; }
-      body = merged;
+      body = new Blob([merged], { type: ct });
       headers["Content-Type"] = ct;
     } else {
       body = JSON.stringify(req.body);

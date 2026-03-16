@@ -47,7 +47,7 @@ const SCRYPT_SALT_LEN = 16;
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(SCRYPT_SALT_LEN);
   const derived = crypto.scryptSync(password, new Uint8Array(salt), SCRYPT_KEYLEN);
-  return salt.toString("hex") + ":" + Buffer.from(derived).toString("hex");
+  return salt.toString("hex") + ":" + (derived as Buffer).toString("hex");
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
