@@ -38,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "x-api-key": apiKey,
   };
 
-  let body: string | Buffer | undefined;
+  let body: string | Uint8Array | undefined;
   if (
     req.method === "POST" ||
     req.method === "PATCH" ||
@@ -47,9 +47,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   ) {
     const ct = req.headers["content-type"] ?? "";
     if (ct.includes("multipart/")) {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(chunk as Buffer);
-      body = Buffer.concat(chunks);
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of req) chunks.push(new Uint8Array(chunk as Buffer));
+      let totalLen = 0;
+      for (const c of chunks) totalLen += c.length;
+      const merged = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const c of chunks) { merged.set(c, offset); offset += c.length; }
+      body = merged;
       headers["Content-Type"] = ct;
     } else {
       body = JSON.stringify(req.body);
