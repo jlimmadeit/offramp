@@ -14,6 +14,7 @@ export interface User {
   last_name: string | null;
   email_address: string | null;
   flowstage_key: string | null;
+  bundle_key: string | null;
 }
 
 interface AuthState {
@@ -28,6 +29,7 @@ interface AuthState {
   ) => Promise<string | null>;
   signOut: () => void;
   updateFlowstageKey: (key: string) => Promise<string | null>;
+  updateBundleKey: (key: string) => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -58,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     supabase
       .from("users")
-      .select("id, first_name, last_name, email_address, flowstage_key")
+      .select("id, first_name, last_name, email_address, flowstage_key, bundle_key")
       .eq("id", userId)
       .single()
       .then(({ data, error }) => {
@@ -75,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (email: string, password: string): Promise<string | null> => {
       const { data, error } = await supabase
         .from("users")
-        .select("id, first_name, last_name, email_address, password, flowstage_key")
+        .select("id, first_name, last_name, email_address, password, flowstage_key, bundle_key")
         .eq("email_address", email)
         .single();
 
@@ -138,7 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email_address: email,
           password: hashedPassword,
         })
-        .select("id, first_name, last_name, email_address, flowstage_key")
+        .select("id, first_name, last_name, email_address, flowstage_key, bundle_key")
         .single();
 
       if (error || !data) return error?.message ?? "Sign up failed.";
@@ -196,9 +198,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user]
   );
 
+  const updateBundleKey = useCallback(
+    async (key: string): Promise<string | null> => {
+      if (!user) return "Not signed in.";
+      const trimmed = key.trim();
+
+      if (!trimmed) {
+        const { error } = await supabase
+          .from("users")
+          .update({ bundle_key: null })
+          .eq("id", user.id);
+        if (error) return error.message;
+        setUser((prev) => (prev ? { ...prev, bundle_key: null } : prev));
+        return null;
+      }
+
+      try {
+        const res = await fetch("/api/encrypt-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: trimmed }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          return body.error ?? "Encryption failed.";
+        }
+        const { encrypted } = await res.json();
+
+        const { error } = await supabase
+          .from("users")
+          .update({ bundle_key: encrypted })
+          .eq("id", user.id);
+        if (error) return error.message;
+        setUser((prev) => (prev ? { ...prev, bundle_key: encrypted } : prev));
+        return null;
+      } catch (err) {
+        return err instanceof Error ? err.message : "Failed to save key.";
+      }
+    },
+    [user]
+  );
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, signIn, signUp, signOut, updateFlowstageKey }}
+      value={{ user, loading, signIn, signUp, signOut, updateFlowstageKey, updateBundleKey }}
     >
       {children}
     </AuthContext.Provider>

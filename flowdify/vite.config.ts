@@ -527,17 +527,42 @@ function flowstageProxyPlugin(): PluginOption {
 }
 
 function bundleSocialProxyPlugin(): PluginOption {
-  let bundleApiKey: string;
+  let encryptionSecret: string;
 
   return {
     name: "bundle-social-proxy",
     configResolved(config) {
       const env = loadEnv(config.mode, path.resolve(__dirname, ".."), "");
-      bundleApiKey = env.BUNDLE_API_KEY ?? "";
+      encryptionSecret = env.ENCRYPTION_SECRET ?? "";
     },
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith("/api/bundle/")) return next();
+
+        const encryptedKey = req.headers["x-bundle-key"] as string | undefined;
+        if (!encryptedKey) {
+          res.statusCode = 401;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ detail: "No Bundle API key provided. Add your key in Settings." }));
+          return;
+        }
+
+        if (!encryptionSecret) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ detail: "ENCRYPTION_SECRET not configured on server." }));
+          return;
+        }
+
+        let apiKey: string;
+        try {
+          apiKey = decryptKey(encryptedKey, encryptionSecret);
+        } catch {
+          res.statusCode = 401;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ detail: "Invalid or corrupted Bundle API key. Re-enter your key in Settings." }));
+          return;
+        }
 
         const upstream = req.url.replace(
           "/api/bundle/",
@@ -545,7 +570,7 @@ function bundleSocialProxyPlugin(): PluginOption {
         );
 
         const headers: Record<string, string> = {
-          "x-api-key": bundleApiKey,
+          "x-api-key": apiKey,
         };
 
         let body: string | Buffer | undefined;

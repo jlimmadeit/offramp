@@ -204,6 +204,7 @@ CREATE TABLE public.users (
   password text,
   code text,
   flowstage_key text,
+  bundle_key text,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.videos (

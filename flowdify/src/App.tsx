@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "./context/AuthContext";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
 import { setFlowstageKey } from "./lib/flowstage";
+import { setBundleKey } from "./lib/bundle";
 import Sidebar from "./components/Sidebar";
 import Canvas from "./components/Canvas";
 import SchedulePage from "./components/SchedulePage";
@@ -84,14 +85,23 @@ function HamburgerMenu({
 }
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
-  const { user, updateFlowstageKey } = useAuth();
-  const hasKey = !!user?.flowstage_key;
-  const [key, setKey] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showKey, setShowKey] = useState(false);
+  const { user, updateFlowstageKey, updateBundleKey } = useAuth();
+
+  const hasFlowstageKey = !!user?.flowstage_key;
+  const [fsKey, setFsKey] = useState("");
+  const [fsLoading, setFsLoading] = useState(false);
+  const [fsSaving, setFsSaving] = useState(false);
+  const [fsSaved, setFsSaved] = useState(false);
+  const [fsError, setFsError] = useState<string | null>(null);
+  const [showFsKey, setShowFsKey] = useState(false);
+
+  const hasBundleKey = !!user?.bundle_key;
+  const [bKey, setBKey] = useState("");
+  const [bLoading, setBLoading] = useState(false);
+  const [bSaving, setBSaving] = useState(false);
+  const [bSaved, setBSaved] = useState(false);
+  const [bError, setBError] = useState<string | null>(null);
+  const [showBKey, setShowBKey] = useState(false);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -103,7 +113,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!user?.flowstage_key) return;
-    setLoading(true);
+    setFsLoading(true);
     fetch("/api/decrypt-key", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -111,38 +121,95 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.key) setKey(data.key);
+        if (data?.key) setFsKey(data.key);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => setFsLoading(false));
   }, [user?.flowstage_key]);
 
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-    const err = await updateFlowstageKey(key);
-    setSaving(false);
+  useEffect(() => {
+    if (!user?.bundle_key) return;
+    setBLoading(true);
+    fetch("/api/decrypt-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ encrypted: user.bundle_key }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.key) setBKey(data.key);
+      })
+      .catch(() => {})
+      .finally(() => setBLoading(false));
+  }, [user?.bundle_key]);
+
+  const handleSaveFs = async () => {
+    setFsSaving(true);
+    setFsError(null);
+    setFsSaved(false);
+    const err = await updateFlowstageKey(fsKey);
+    setFsSaving(false);
     if (err) {
-      setError(err);
+      setFsError(err);
     } else {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setFsSaved(true);
+      setTimeout(() => setFsSaved(false), 2000);
     }
   };
 
-  const handleClear = async () => {
-    setSaving(true);
-    setError(null);
+  const handleClearFs = async () => {
+    setFsSaving(true);
+    setFsError(null);
     const err = await updateFlowstageKey("");
-    setSaving(false);
+    setFsSaving(false);
     if (err) {
-      setError(err);
+      setFsError(err);
     } else {
-      setKey("");
-      setShowKey(false);
+      setFsKey("");
+      setShowFsKey(false);
     }
   };
+
+  const handleSaveB = async () => {
+    setBSaving(true);
+    setBError(null);
+    setBSaved(false);
+    const err = await updateBundleKey(bKey);
+    setBSaving(false);
+    if (err) {
+      setBError(err);
+    } else {
+      setBSaved(true);
+      setTimeout(() => setBSaved(false), 2000);
+    }
+  };
+
+  const handleClearB = async () => {
+    setBSaving(true);
+    setBError(null);
+    const err = await updateBundleKey("");
+    setBSaving(false);
+    if (err) {
+      setBError(err);
+    } else {
+      setBKey("");
+      setShowBKey(false);
+    }
+  };
+
+  const EyeOpen = (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+  const EyeClosed = (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
 
   return (
     <div className="fixed inset-0 z-[9998] flex items-center justify-center">
@@ -161,67 +228,115 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wider">
-              Flowstage API key
-            </label>
-            <div className="relative">
-              <input
-                type={showKey ? "text" : "password"}
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-                placeholder={loading ? "Loading..." : "fs_..."}
-                disabled={loading}
-                className="w-full h-10 px-3 pr-10 rounded-lg bg-gray-50 border border-gray-200 text-[13px] text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 transition-colors font-mono disabled:opacity-50"
-              />
-              {key && (
+        <div className="px-6 py-5 space-y-5">
+          {/* Flowstage API key */}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wider">
+                Flowstage API key
+              </label>
+              <div className="relative">
+                <input
+                  type={showFsKey ? "text" : "password"}
+                  value={fsKey}
+                  onChange={(e) => setFsKey(e.target.value)}
+                  placeholder={fsLoading ? "Loading..." : "fs_..."}
+                  disabled={fsLoading}
+                  className="w-full h-10 px-3 pr-10 rounded-lg bg-gray-50 border border-gray-200 text-[13px] text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 transition-colors font-mono disabled:opacity-50"
+                />
+                {fsKey && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFsKey((v) => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    {showFsKey ? EyeClosed : EyeOpen}
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Your key is encrypted before being stored. Get yours from the Flowstage dashboard.
+              </p>
+            </div>
+
+            {fsError && (
+              <p className="text-[12px] text-red-500 font-medium">{fsError}</p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveFs}
+                disabled={fsSaving || !fsKey.trim()}
+                className="flex-1 h-10 rounded-lg bg-gray-900 text-white text-[13px] font-semibold tracking-tight hover:bg-gray-800 active:bg-black disabled:opacity-50 transition-colors"
+              >
+                {fsSaving ? "Saving..." : fsSaved ? "Saved" : "Save"}
+              </button>
+              {hasFlowstageKey && (
                 <button
-                  type="button"
-                  onClick={() => setShowKey((v) => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  onClick={handleClearFs}
+                  disabled={fsSaving}
+                  className="h-10 px-4 rounded-lg border border-gray-200 text-[13px] font-medium text-gray-500 hover:text-red-500 hover:border-red-200 disabled:opacity-50 transition-colors"
                 >
-                  {showKey ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                      <line x1="1" y1="1" x2="23" y2="23" />
-                    </svg>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  )}
+                  Remove
                 </button>
               )}
             </div>
-            <p className="text-[11px] text-gray-400 mt-1.5">
-              Your key is encrypted before being stored. Get yours from the Flowstage dashboard.
-            </p>
           </div>
 
-          {error && (
-            <p className="text-[12px] text-red-500 font-medium">{error}</p>
-          )}
+          <div className="border-t border-gray-100" />
 
-          <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving || !key.trim()}
-              className="flex-1 h-10 rounded-lg bg-gray-900 text-white text-[13px] font-semibold tracking-tight hover:bg-gray-800 active:bg-black disabled:opacity-50 transition-colors"
-            >
-              {saving ? "Saving..." : saved ? "Saved" : "Save"}
-            </button>
-            {hasKey && (
-              <button
-                onClick={handleClear}
-                disabled={saving}
-                className="h-10 px-4 rounded-lg border border-gray-200 text-[13px] font-medium text-gray-500 hover:text-red-500 hover:border-red-200 disabled:opacity-50 transition-colors"
-              >
-                Remove
-              </button>
+          {/* Bundle API key */}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wider">
+                Bundle API key
+              </label>
+              <div className="relative">
+                <input
+                  type={showBKey ? "text" : "password"}
+                  value={bKey}
+                  onChange={(e) => setBKey(e.target.value)}
+                  placeholder={bLoading ? "Loading..." : "Paste your Bundle API key"}
+                  disabled={bLoading}
+                  className="w-full h-10 px-3 pr-10 rounded-lg bg-gray-50 border border-gray-200 text-[13px] text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200 transition-colors font-mono disabled:opacity-50"
+                />
+                {bKey && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBKey((v) => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    {showBKey ? EyeClosed : EyeOpen}
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Your key is encrypted before being stored. Get yours from the Bundle Social dashboard.
+              </p>
+            </div>
+
+            {bError && (
+              <p className="text-[12px] text-red-500 font-medium">{bError}</p>
             )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveB}
+                disabled={bSaving || !bKey.trim()}
+                className="flex-1 h-10 rounded-lg bg-gray-900 text-white text-[13px] font-semibold tracking-tight hover:bg-gray-800 active:bg-black disabled:opacity-50 transition-colors"
+              >
+                {bSaving ? "Saving..." : bSaved ? "Saved" : "Save"}
+              </button>
+              {hasBundleKey && (
+                <button
+                  onClick={handleClearB}
+                  disabled={bSaving}
+                  className="h-10 px-4 rounded-lg border border-gray-200 text-[13px] font-medium text-gray-500 hover:text-red-500 hover:border-red-200 disabled:opacity-50 transition-colors"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -238,6 +353,10 @@ export default function App() {
   useEffect(() => {
     setFlowstageKey(user?.flowstage_key ?? null);
   }, [user?.flowstage_key]);
+
+  useEffect(() => {
+    setBundleKey(user?.bundle_key ?? null);
+  }, [user?.bundle_key]);
 
   if (loading) return null;
 
