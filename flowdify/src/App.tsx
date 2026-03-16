@@ -7,6 +7,7 @@ import Canvas from "./components/Canvas";
 import SchedulePage from "./components/SchedulePage";
 import StatisticsPage from "./components/StatisticsPage";
 import AuthModal from "./components/AuthModal";
+import HelpGuide, { useHelpGuide } from "./components/HelpGuide";
 
 type Page = "canvas" | "schedule" | "statistics";
 
@@ -232,6 +233,7 @@ export default function App() {
   const { user, loading, signOut } = useAuth();
   const [page, setPage] = useState<Page>("canvas");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { open: helpOpen, setOpen: setHelpOpen } = useHelpGuide();
 
   useEffect(() => {
     setFlowstageKey(user?.flowstage_key ?? null);
@@ -282,6 +284,17 @@ export default function App() {
         )}
 
         {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+
+        {/* Help button — top right */}
+        <button
+          onClick={() => setHelpOpen(true)}
+          className="fixed top-3 right-3 z-50 w-8 h-8 rounded-full bg-white/90 backdrop-blur border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors flex items-center justify-center text-[14px] font-semibold text-gray-400 hover:text-[#007AFF]"
+          aria-label="Help"
+        >
+          ?
+        </button>
+
+        <HelpGuide open={helpOpen} onClose={() => setHelpOpen(false)} />
       </div>
     </WorkspaceProvider>
   );
