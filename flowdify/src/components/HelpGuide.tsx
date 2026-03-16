@@ -315,19 +315,17 @@ export default function HelpGuide({
     return () => document.removeEventListener("keydown", handler);
   }, [open, dismiss]);
 
-  const current = sections.find((s) => s.id === activeSection) ?? sections[0];
+  const current = sections.find((s) => s.id === activeSection) ?? sections[0]!;
   const currentIdx = sections.findIndex((s) => s.id === current.id);
 
   const goNext = () => {
-    if (currentIdx < sections.length - 1) {
-      selectSection(sections[currentIdx + 1].id);
-    }
+    const next = sections[currentIdx + 1];
+    if (next) selectSection(next.id);
   };
 
   const goPrev = () => {
-    if (currentIdx > 0) {
-      selectSection(sections[currentIdx - 1].id);
-    }
+    const prev = sections[currentIdx - 1];
+    if (prev) selectSection(prev.id);
   };
 
   if (!open) return null;
