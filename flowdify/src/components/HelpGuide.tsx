@@ -197,6 +197,19 @@ const sections: Section[] = [
     content: (
       <>
         <p>
+          Linking social accounts requires{" "}
+          <a
+            href="https://bundle.social"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#007AFF", textDecoration: "underline" }}
+          >
+            Bundle Social
+          </a>
+          . You'll need a Bundle API key — add it in{" "}
+          <strong>Settings</strong> before linking any accounts.
+        </p>
+        <p>
           In the <strong>Accounts</strong> section of the sidebar, click{" "}
           <strong>Link account</strong>. Name a team, then connect your
           TikTok, Instagram, or YouTube in the Bundle Social portal that opens.

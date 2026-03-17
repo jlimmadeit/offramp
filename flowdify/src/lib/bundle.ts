@@ -1,9 +1,13 @@
 const PROXY_BASE = "/api/bundle";
 
-let _bundleKey: string | null = null;
+let _bundleKey: string | null =
+  (import.meta as any).hot?.data?.bundleKey ?? null;
 
 export function setBundleKey(key: string | null) {
   _bundleKey = key;
+  if ((import.meta as any).hot) {
+    (import.meta as any).hot.data.bundleKey = key;
+  }
 }
 
 function bundleHeaders(extra?: HeadersInit): Headers {
@@ -107,7 +111,7 @@ export async function uploadToBundle(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `Upload failed (${res.status})`);
+    throw new Error(err.detail ?? err.message ?? `Upload failed (${res.status})`);
   }
 
   return res.json();
@@ -120,14 +124,31 @@ export async function createBundlePost(params: {
   postDate: string;
   title: string;
   caption?: string;
+  tiktokSoundId?: string;
+  tiktokSoundStartMs?: number;
+  tiktokSoundEndMs?: number;
 }): Promise<{ id: string }> {
-  const { teamId, socialAccountType, uploadId, postDate, title, caption } = params;
+  const { teamId, socialAccountType, uploadId, postDate, title, caption, tiktokSoundId, tiktokSoundStartMs, tiktokSoundEndMs } = params;
 
   const platformData: Record<string, unknown> = {
     text: caption ?? "",
     uploadIds: [uploadId],
   };
-  if (socialAccountType === "TIKTOK") platformData.type = "VIDEO";
+  if (socialAccountType === "TIKTOK") {
+    platformData.type = "VIDEO";
+    if (tiktokSoundId) {
+      const musicInfo: Record<string, unknown> = {
+        musicSoundId: tiktokSoundId,
+        musicSoundVolume: 100,
+        videoOriginalSoundVolume: 0,
+        musicSoundStart: tiktokSoundStartMs ?? 0,
+      };
+      if (tiktokSoundEndMs && tiktokSoundEndMs > (tiktokSoundStartMs ?? 0)) {
+        musicInfo.musicSoundEnd = tiktokSoundEndMs;
+      }
+      platformData.musicSoundInfo = musicInfo;
+    }
+  }
   else if (socialAccountType === "INSTAGRAM") platformData.type = "REEL";
   else if (socialAccountType === "YOUTUBE") platformData.type = "SHORT";
 
@@ -146,7 +167,7 @@ export async function createBundlePost(params: {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `Create post failed (${res.status})`);
+    throw new Error(err.detail ?? err.message ?? `Create post failed (${res.status})`);
   }
 
   return res.json();

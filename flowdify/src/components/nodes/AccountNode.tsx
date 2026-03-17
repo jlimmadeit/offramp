@@ -202,6 +202,42 @@ export default function AccountNode({
       allCaptions = (capRows ?? []).map((r) => r.caption!).filter(Boolean);
     }
 
+    // Find tiktok_sound_id by traversing: edits <- aesthetic <- audio
+    let tiktokSoundId: string | undefined;
+    let tiktokSoundStartMs: number | undefined;
+    let tiktokSoundEndMs: number | undefined;
+    {
+      const editsNodeIds = editsNodes.map((n) => n.id);
+      const aestheticNodeIds = dbCurrents
+        .filter((c) => editsNodeIds.includes(c.to_node_id))
+        .map((c) => dbNodes.find((n) => n.id === c.from_node_id))
+        .filter((n): n is (typeof dbNodes)[number] => !!n && getKindName(n.kind_id) === "aesthetic")
+        .map((n) => n.id);
+
+      if (aestheticNodeIds.length > 0) {
+        const audioNodeIds = dbCurrents
+          .filter((c) => aestheticNodeIds.includes(c.to_node_id))
+          .map((c) => dbNodes.find((n) => n.id === c.from_node_id))
+          .filter((n): n is (typeof dbNodes)[number] => !!n && getKindName(n.kind_id) === "audios")
+          .map((n) => n.id);
+
+        if (audioNodeIds.length > 0) {
+          const { data: naRows } = await supabase
+            .from("node_audios")
+            .select("audio_id, audios(tiktok_sound_id, tiktok_sound_start_ms, tiktok_sound_end_ms)")
+            .in("node_id", audioNodeIds)
+            .limit(1);
+
+          const row = (naRows as any)?.[0];
+          if (row?.audios?.tiktok_sound_id) {
+            tiktokSoundId = row.audios.tiktok_sound_id;
+            tiktokSoundStartMs = row.audios.tiktok_sound_start_ms ?? undefined;
+            tiktokSoundEndMs = row.audios.tiktok_sound_end_ms ?? undefined;
+          }
+        }
+      }
+    }
+
     const node = dbNodes.find((n) => n.id === data.dbId);
     const groupId = node?.account_group_id;
     if (!groupId) {
@@ -330,6 +366,9 @@ export default function AccountNode({
             postDate: scheduled.toISOString(),
             title: edit.name || "Edit",
             caption,
+            tiktokSoundId: platform === "TIKTOK" ? tiktokSoundId : undefined,
+            tiktokSoundStartMs: platform === "TIKTOK" ? tiktokSoundStartMs : undefined,
+            tiktokSoundEndMs: platform === "TIKTOK" ? tiktokSoundEndMs : undefined,
           });
 
           await supabase

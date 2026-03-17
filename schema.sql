@@ -53,6 +53,8 @@ CREATE TABLE public.audios (
   start_time double precision,
   end_time double precision,
   user_id bigint,
+  tiktok_sound_start_ms bigint,
+  tiktok_sound_end_ms bigint,
   CONSTRAINT audios_pkey PRIMARY KEY (id),
   CONSTRAINT audios_artist_id_fkey FOREIGN KEY (artist_id) REFERENCES public.artists(id),
   CONSTRAINT audios_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)

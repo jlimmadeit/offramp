@@ -508,6 +508,9 @@ interface AudioBucketItem {
   url: string | null;
   startTime: number | null;
   endTime: number | null;
+  tiktokSoundId: string | null;
+  tiktokSoundStartMs: number | null;
+  tiktokSoundEndMs: number | null;
 }
 
 function AudioBucket({ reloadKey }: { reloadKey: number }) {
@@ -517,6 +520,7 @@ function AudioBucket({ reloadKey }: { reloadKey: number }) {
   const [playingId, setPlayingId] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endTimeRef = useRef<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   const stopPlayback = useCallback(() => {
     if (audioRef.current) {
@@ -572,7 +576,7 @@ function AudioBucket({ reloadKey }: { reloadKey: number }) {
   const loadFromDb = useCallback(async () => {
     let query = supabase
       .from("audios")
-      .select("id, flowstage_uuid, name, song_duration, url, start_time, end_time")
+      .select("id, flowstage_uuid, name, song_duration, url, start_time, end_time, tiktok_sound_id, tiktok_sound_start_ms, tiktok_sound_end_ms")
       .not("flowstage_uuid", "is", null)
       .order("name");
     if (user) query = query.eq("user_id", user.id);
@@ -588,6 +592,9 @@ function AudioBucket({ reloadKey }: { reloadKey: number }) {
       url: r.url ?? null,
       startTime: r.start_time ?? null,
       endTime: r.end_time ?? null,
+      tiktokSoundId: r.tiktok_sound_id ?? null,
+      tiktokSoundStartMs: r.tiktok_sound_start_ms ?? null,
+      tiktokSoundEndMs: r.tiktok_sound_end_ms ?? null,
     }));
     setAudios(items);
   }, []);
@@ -602,6 +609,40 @@ function AudioBucket({ reloadKey }: { reloadKey: number }) {
   useEffect(() => {
     if (reloadKey > 0) loadFromDb();
   }, [reloadKey, loadFromDb]);
+
+  const saveTiktokSoundId = useCallback(
+    async (audioDbId: number, value: string) => {
+      const trimmed = value.trim() || null;
+      await supabase
+        .from("audios")
+        .update({ tiktok_sound_id: trimmed })
+        .eq("id", audioDbId);
+      setAudios((prev) =>
+        prev.map((a) =>
+          a.dbId === audioDbId ? { ...a, tiktokSoundId: trimmed } : a
+        )
+      );
+    },
+    []
+  );
+
+  const saveTiktokSoundMs = useCallback(
+    async (audioDbId: number, field: "tiktok_sound_start_ms" | "tiktok_sound_end_ms", value: string) => {
+      const parsed = value.trim() ? parseInt(value.trim(), 10) : null;
+      const numVal = parsed != null && !isNaN(parsed) ? parsed : null;
+      await supabase
+        .from("audios")
+        .update({ [field]: numVal })
+        .eq("id", audioDbId);
+      const stateKey = field === "tiktok_sound_start_ms" ? "tiktokSoundStartMs" : "tiktokSoundEndMs";
+      setAudios((prev) =>
+        prev.map((a) =>
+          a.dbId === audioDbId ? { ...a, [stateKey]: numVal } : a
+        )
+      );
+    },
+    []
+  );
 
   const formatDuration = (d: number | null) => {
     if (d == null) return "—";
@@ -619,51 +660,128 @@ function AudioBucket({ reloadKey }: { reloadKey: number }) {
           </span>
           {audios.map((a) => {
             const isPlaying = playingId === a.dbId;
+            const isEditing = editingId === a.dbId;
             return (
-              <div
-                key={a.dbId}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(
-                    "application/flowdify-bucket-file",
-                    JSON.stringify({
-                      id: `audio-${a.dbId}`,
-                      name: a.name,
-                      type: "audio",
-                      dbAudioId: a.dbId,
-                    })
-                  );
-                  e.dataTransfer.effectAllowed = "copy";
-                }}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-gray-50 hover:bg-gray-100 transition-colors cursor-grab active:cursor-grabbing"
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    togglePlay(a);
+              <div key={a.dbId} className="flex flex-col">
+                <div
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(
+                      "application/flowdify-bucket-file",
+                      JSON.stringify({
+                        id: `audio-${a.dbId}`,
+                        name: a.name,
+                        type: "audio",
+                        dbAudioId: a.dbId,
+                      })
+                    );
+                    e.dataTransfer.effectAllowed = "copy";
                   }}
-                  disabled={!a.url}
-                  className="w-8 h-8 rounded flex items-center justify-center text-white text-[12px] flex-shrink-0 disabled:opacity-40"
-                  style={{ backgroundColor: "#5AC8FA" }}
-                  title={!a.url ? "No audio URL yet — sync first" : isPlaying ? "Pause" : "Play"}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-gray-50 hover:bg-gray-100 transition-colors cursor-grab active:cursor-grabbing"
                 >
-                  {isPlaying ? (
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                      <rect x="3" y="2" width="4" height="12" rx="1" />
-                      <rect x="9" y="2" width="4" height="12" rx="1" />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePlay(a);
+                    }}
+                    disabled={!a.url}
+                    className="w-8 h-8 rounded flex items-center justify-center text-white text-[12px] flex-shrink-0 disabled:opacity-40"
+                    style={{ backgroundColor: "#5AC8FA" }}
+                    title={!a.url ? "No audio URL yet — sync first" : isPlaying ? "Pause" : "Play"}
+                  >
+                    {isPlaying ? (
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                        <rect x="3" y="2" width="4" height="12" rx="1" />
+                        <rect x="9" y="2" width="4" height="12" rx="1" />
+                      </svg>
+                    ) : (
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M4 2l10 6-10 6z" />
+                      </svg>
+                    )}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] text-gray-700 truncate">{a.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-[10px] text-gray-400">
+                        {formatDuration(a.duration)}
+                      </p>
+                      {a.tiktokSoundId && (
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-gray-200 text-gray-500 font-mono truncate max-w-[80px]" title={`TikTok Sound: ${a.tiktokSoundId}`}>
+                          TT
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(isEditing ? null : a.dbId);
+                    }}
+                    className="w-5 h-5 flex items-center justify-center text-[10px] text-gray-300 hover:text-gray-600 transition-colors flex-shrink-0"
+                    title="Set TikTok Sound ID"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11.5 1.5l3 3-9 9H2.5v-3z" />
                     </svg>
-                  ) : (
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M4 2l10 6-10 6z" />
-                    </svg>
-                  )}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12px] text-gray-700 truncate">{a.name}</p>
-                  <p className="text-[10px] text-gray-400">
-                    {formatDuration(a.duration)}
-                  </p>
+                  </button>
                 </div>
+                {isEditing && (
+                  <div className="px-2 py-1.5 bg-gray-50 rounded-b-md -mt-0.5 border-t border-gray-100 flex flex-col gap-1.5">
+                    <div>
+                      <label className="text-[10px] text-gray-400 block mb-1">TikTok Sound ID</label>
+                      <input
+                        type="text"
+                        defaultValue={a.tiktokSoundId ?? ""}
+                        placeholder="e.g. 6817312022837872642"
+                        onBlur={(e) => saveTiktokSoundId(a.dbId, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            saveTiktokSoundId(a.dbId, (e.target as HTMLInputElement).value);
+                            setEditingId(null);
+                          }
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="w-full px-2 py-1 text-[11px] text-gray-700 bg-white border border-gray-200 rounded outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all placeholder:text-gray-300 font-mono"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex gap-1.5">
+                      <div className="flex-1">
+                        <label className="text-[10px] text-gray-400 block mb-1">Start (ms)</label>
+                        <input
+                          type="number"
+                          defaultValue={a.tiktokSoundStartMs ?? ""}
+                          placeholder="0"
+                          onBlur={(e) => saveTiktokSoundMs(a.dbId, "tiktok_sound_start_ms", e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              saveTiktokSoundMs(a.dbId, "tiktok_sound_start_ms", (e.target as HTMLInputElement).value);
+                            }
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                          className="w-full px-2 py-1 text-[11px] text-gray-700 bg-white border border-gray-200 rounded outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all placeholder:text-gray-300 font-mono"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] text-gray-400 block mb-1">End (ms)</label>
+                        <input
+                          type="number"
+                          defaultValue={a.tiktokSoundEndMs ?? ""}
+                          placeholder="0"
+                          onBlur={(e) => saveTiktokSoundMs(a.dbId, "tiktok_sound_end_ms", e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              saveTiktokSoundMs(a.dbId, "tiktok_sound_end_ms", (e.target as HTMLInputElement).value);
+                            }
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                          className="w-full px-2 py-1 text-[11px] text-gray-700 bg-white border border-gray-200 rounded outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all placeholder:text-gray-300 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

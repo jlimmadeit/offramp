@@ -47,6 +47,8 @@ export interface DbAudio {
   song_duration: number | null;
   start_time: number | null;
   end_time: number | null;
+  tiktok_sound_start_ms: number | null;
+  tiktok_sound_end_ms: number | null;
 }
 
 export interface DbNodeVideo {
