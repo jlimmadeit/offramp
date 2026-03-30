@@ -63,11 +63,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const upstreamRes = await fetch(upstream, {
+    let upstreamRes = await fetch(upstream, {
       method: req.method,
       headers,
       body,
+      redirect: "manual",
     });
+
+    if ([301, 302, 307, 308].includes(upstreamRes.status)) {
+      const location = upstreamRes.headers.get("location");
+      if (location) {
+        upstreamRes = await fetch(location, {
+          method: req.method,
+          headers,
+          body,
+          redirect: "manual",
+        });
+      }
+    }
 
     const responseBody = await upstreamRes.text();
     res.status(upstreamRes.status);
