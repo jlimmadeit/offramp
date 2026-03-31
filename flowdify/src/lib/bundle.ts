@@ -1,20 +1,35 @@
+import { supabase } from "./supabase";
+
 const PROXY_BASE = "/api/bundle";
 
-let _bundleKey: string | null =
-  (import.meta as any).hot?.data?.bundleKey ?? null;
+let _userId: number | null = null;
 
-export function setBundleKey(key: string | null) {
-  _bundleKey = key;
-  if ((import.meta as any).hot) {
-    (import.meta as any).hot.data.bundleKey = key;
-  }
+export function setBundleUser(userId: number | null) {
+  _userId = userId;
 }
 
-function bundleHeaders(extra?: HeadersInit): Headers {
-  const headers = new Headers(extra);
-  if (_bundleKey) {
-    headers.set("X-Bundle-Key", _bundleKey);
+async function freshBundleKey(): Promise<string> {
+  if (!_userId) {
+    throw new Error("No Bundle API key configured. Add your key in Settings.");
   }
+
+  const { data, error } = await supabase
+    .from("users")
+    .select("bundle_key")
+    .eq("id", _userId)
+    .single();
+
+  if (error || !data?.bundle_key) {
+    throw new Error("No Bundle API key configured. Add your key in Settings.");
+  }
+
+  return data.bundle_key;
+}
+
+async function bundleHeaders(extra?: HeadersInit): Promise<Headers> {
+  const key = await freshBundleKey();
+  const headers = new Headers(extra);
+  headers.set("X-Bundle-Key", key);
   return headers;
 }
 
@@ -41,16 +56,36 @@ export interface CreateTeamResult {
   name: string;
 }
 
+export interface TeamListItem {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
+export async function listTeams(): Promise<TeamListItem[]> {
+  const res = await fetch(`${PROXY_BASE}/team/?limit=50`, {
+    headers: await bundleHeaders(),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? err.message ?? `List teams failed (${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.items ?? [];
+}
+
 export async function createTeam(name: string): Promise<CreateTeamResult> {
   const res = await fetch(`${PROXY_BASE}/team/`, {
     method: "POST",
-    headers: bundleHeaders({ "Content-Type": "application/json" }),
+    headers: await bundleHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ name }),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `Create team failed (${res.status})`);
+    throw new Error(err.detail ?? err.message ?? `Create team failed (${res.status})`);
   }
 
   return res.json();
@@ -62,7 +97,7 @@ export async function createPortalLink(
   const redirectUrl = `${window.location.origin}/linked.html`;
   const res = await fetch(`${PROXY_BASE}/social-account/create-portal-link`, {
     method: "POST",
-    headers: bundleHeaders({ "Content-Type": "application/json" }),
+    headers: await bundleHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       teamId,
       socialAccountTypes: ["INSTAGRAM", "TIKTOK", "YOUTUBE"],
@@ -74,7 +109,7 @@ export async function createPortalLink(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `Portal link failed (${res.status})`);
+    throw new Error(err.detail ?? err.message ?? `Portal link failed (${res.status})`);
   }
 
   const data = await res.json();
@@ -83,12 +118,12 @@ export async function createPortalLink(
 
 export async function getTeam(teamId: string): Promise<BundleTeam> {
   const res = await fetch(`${PROXY_BASE}/team/${teamId}`, {
-    headers: bundleHeaders(),
+    headers: await bundleHeaders(),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `Get team failed (${res.status})`);
+    throw new Error(err.detail ?? err.message ?? `Get team failed (${res.status})`);
   }
 
   return res.json();
@@ -105,7 +140,7 @@ export async function uploadToBundle(
 
   const res = await fetch(`${PROXY_BASE}/upload/`, {
     method: "POST",
-    headers: bundleHeaders(),
+    headers: await bundleHeaders(),
     body: formData,
   });
 
@@ -154,7 +189,7 @@ export async function createBundlePost(params: {
 
   const res = await fetch(`${PROXY_BASE}/post/`, {
     method: "POST",
-    headers: bundleHeaders({ "Content-Type": "application/json" }),
+    headers: await bundleHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       teamId,
       title,
@@ -179,13 +214,13 @@ export async function rescheduleBundlePost(
 ): Promise<void> {
   const res = await fetch(`${PROXY_BASE}/post/${postId}`, {
     method: "PATCH",
-    headers: bundleHeaders({ "Content-Type": "application/json" }),
+    headers: await bundleHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ postDate: newDate }),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `Reschedule failed (${res.status})`);
+    throw new Error(err.detail ?? err.message ?? `Reschedule failed (${res.status})`);
   }
 }
 
@@ -213,12 +248,12 @@ export async function getBundlePostAnalytics(
     platformType,
   });
   const res = await fetch(`${PROXY_BASE}/analytics/post?${params}`, {
-    headers: bundleHeaders(),
+    headers: await bundleHeaders(),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? `Post analytics failed (${res.status})`);
+    throw new Error(err.detail ?? err.message ?? `Post analytics failed (${res.status})`);
   }
 
   const data = await res.json();

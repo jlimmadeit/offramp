@@ -564,6 +564,13 @@ function bundleSocialProxyPlugin(): PluginOption {
           return;
         }
 
+        if (!apiKey || apiKey.trim().length === 0) {
+          res.statusCode = 401;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ detail: "Decrypted Bundle API key is empty. Re-enter your key in Settings." }));
+          return;
+        }
+
         const upstream = req.url.replace(
           "/api/bundle/",
           "https://api.bundle.social/api/v1/"
@@ -578,24 +585,49 @@ function bundleSocialProxyPlugin(): PluginOption {
           const chunks: Buffer[] = [];
           for await (const chunk of req) chunks.push(chunk as Buffer);
           const rawBody = Buffer.concat(chunks);
-          const incomingCt = req.headers["content-type"] ?? "";
-          if (incomingCt.includes("multipart/")) {
-            body = rawBody;
-            headers["Content-Type"] = incomingCt;
-          } else {
-            body = rawBody.toString();
-            headers["Content-Type"] = "application/json";
+          if (rawBody.length > 0) {
+            const incomingCt = req.headers["content-type"] ?? "";
+            if (incomingCt.includes("multipart/")) {
+              body = rawBody;
+              headers["Content-Type"] = incomingCt;
+            } else {
+              body = rawBody.toString();
+              headers["Content-Type"] = "application/json";
+            }
           }
         }
+
+        console.log(`[bundle-proxy] ${req.method} ${upstream} | key=${apiKey.slice(0, 8)}…`);
 
         try {
           const upstreamRes = await fetch(upstream, {
             method: req.method,
             headers,
             body,
+            redirect: "manual",
           });
 
+          if ([301, 302, 307, 308].includes(upstreamRes.status)) {
+            const location = upstreamRes.headers.get("location");
+            console.log(`[bundle-proxy] Redirect ${upstreamRes.status} -> ${location}`);
+            if (location) {
+              const followRes = await fetch(location, {
+                method: req.method,
+                headers,
+                body,
+                redirect: "manual",
+              });
+              const followBody = await followRes.text();
+              console.log(`[bundle-proxy] Follow-up ${followRes.status}: ${followBody.slice(0, 200)}`);
+              res.statusCode = followRes.status;
+              res.setHeader("Content-Type", followRes.headers.get("content-type") ?? "application/json");
+              res.end(followBody);
+              return;
+            }
+          }
+
           const responseBody = await upstreamRes.text();
+          console.log(`[bundle-proxy] Response ${upstreamRes.status}: ${responseBody.slice(0, 200)}`);
           res.statusCode = upstreamRes.status;
           res.setHeader("Content-Type", upstreamRes.headers.get("content-type") ?? "application/json");
           res.end(responseBody);

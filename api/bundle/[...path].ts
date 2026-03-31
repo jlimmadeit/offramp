@@ -1,7 +1,22 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { decryptKey } from "../_lib/crypto";
 
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, X-Bundle-Key",
+  "Access-Control-Max-Age": "86400",
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  for (const [k, v] of Object.entries(CORS_HEADERS)) {
+    res.setHeader(k, v);
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
   const secret = process.env.ENCRYPTION_SECRET;
   const encryptedKey = req.headers["x-bundle-key"] as string | undefined;
 
@@ -21,7 +36,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     apiKey = decryptKey(encryptedKey, secret);
   } catch {
     return res.status(401).json({
-      detail: "Invalid or corrupted Bundle API key. Re-enter your key in Settings.",
+      detail:
+        "Invalid or corrupted Bundle API key. Re-enter your key in Settings.",
+    });
+  }
+
+  if (!apiKey || apiKey.trim().length === 0) {
+    return res.status(401).json({
+      detail: "Decrypted Bundle API key is empty. Re-enter your key in Settings.",
     });
   }
 
@@ -48,16 +70,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ct = req.headers["content-type"] ?? "";
     if (ct.includes("multipart/")) {
       const chunks: Uint8Array[] = [];
-      for await (const chunk of req) chunks.push(new Uint8Array(chunk as Buffer));
+      for await (const chunk of req)
+        chunks.push(new Uint8Array(chunk as Buffer));
       let totalLen = 0;
       for (const c of chunks) totalLen += c.length;
       const merged = new Uint8Array(totalLen);
       let offset = 0;
-      for (const c of chunks) { merged.set(c, offset); offset += c.length; }
+      for (const c of chunks) {
+        merged.set(c, offset);
+        offset += c.length;
+      }
       body = new Blob([merged], { type: ct });
       headers["Content-Type"] = ct;
-    } else {
+    } else if (req.body != null && typeof req.body === "object") {
       body = JSON.stringify(req.body);
+      headers["Content-Type"] = "application/json";
+    } else if (req.body != null) {
+      body = String(req.body);
       headers["Content-Type"] = "application/json";
     }
   }

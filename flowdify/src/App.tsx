@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "./context/AuthContext";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
 import { setFlowstageKey } from "./lib/flowstage";
-import { setBundleKey } from "./lib/bundle";
+import { setBundleUser } from "./lib/bundle";
 import Sidebar from "./components/Sidebar";
 import Canvas from "./components/Canvas";
 import SchedulePage from "./components/SchedulePage";
@@ -355,8 +355,8 @@ export default function App() {
   }, [user?.flowstage_key]);
 
   useEffect(() => {
-    setBundleKey(user?.bundle_key ?? null);
-  }, [user?.bundle_key]);
+    setBundleUser(user?.id ?? null);
+  }, [user?.id]);
 
   if (loading) return null;
 

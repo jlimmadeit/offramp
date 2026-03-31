@@ -18,6 +18,7 @@ import {
   createTeam,
   createPortalLink,
   getTeam,
+  listTeams,
   type BundleSocialAccount,
 } from "../lib/bundle";
 
@@ -921,7 +922,24 @@ function LinkAccountModal({
   const [syncing, setSyncing] = useState(false);
   const [syncedCount, setSyncedCount] = useState(0);
 
+  const [existingTeams, setExistingTeams] = useState<{ id: string; name: string }[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [showCreateNew, setShowCreateNew] = useState(false);
+
   const teamRef = useRef<{ id: string; name: string } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setTeamsLoading(true);
+    listTeams()
+      .then((teams) => {
+        setExistingTeams(teams.map((t) => ({ id: t.id, name: t.name })));
+      })
+      .catch(() => {
+        setExistingTeams([]);
+      })
+      .finally(() => setTeamsLoading(false));
+  }, [open]);
 
   const handleClose = useCallback(() => {
     setTeamName("");
@@ -930,9 +948,25 @@ function LinkAccountModal({
     setPortalOpened(false);
     setSyncing(false);
     setSyncedCount(0);
+    setShowCreateNew(false);
     teamRef.current = null;
     onClose();
   }, [onClose]);
+
+  const openPortalForTeam = useCallback(async (team: { id: string; name: string }) => {
+    setLoading(true);
+    setError(null);
+    try {
+      teamRef.current = team;
+      const url = await createPortalLink(team.id);
+      window.open(url, "_blank");
+      setPortalOpened(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open portal");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const handleCreateAndOpenPortal = useCallback(async () => {
     if (!teamName.trim()) return;
@@ -1070,47 +1104,7 @@ function LinkAccountModal({
                 Done
               </button>
             </div>
-          ) : !portalOpened ? (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-medium text-gray-600">
-                  Team name
-                </label>
-                <input
-                  type="text"
-                  value={teamName}
-                  onChange={(e) => setTeamName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCreateAndOpenPortal()}
-                  placeholder='e.g. "Drake fan pages"'
-                  className="w-full px-3 py-2 text-[13px] text-gray-800 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all placeholder:text-gray-300"
-                  autoFocus
-                />
-              </div>
-
-              <p className="text-[11px] text-gray-400 leading-relaxed">
-                Name your team, then connect your Instagram,
-                TikTok, or YouTube accounts.
-              </p>
-
-              <button
-                onClick={handleCreateAndOpenPortal}
-                disabled={!teamName.trim() || loading}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-semibold text-white bg-[#007AFF] hover:bg-[#0066DD] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-              >
-                {loading ? (
-                  <>
-                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
-                      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                      <path d="M14.5 8a6.5 6.5 0 00-6.5-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                    Creating team...
-                  </>
-                ) : (
-                  "Connect accounts"
-                )}
-              </button>
-            </>
-          ) : (
+          ) : portalOpened ? (
             <>
               <p className="text-[13px] text-gray-600 leading-relaxed">
                 Link your accounts in the Bundle Social window, then come back here and sync.
@@ -1133,6 +1127,128 @@ function LinkAccountModal({
                   "Sync accounts"
                 )}
               </button>
+            </>
+          ) : showCreateNew ? (
+            <>
+              <button
+                onClick={() => setShowCreateNew(false)}
+                className="text-[12px] text-gray-400 hover:text-gray-600 transition-colors self-start -mb-2"
+              >
+                ← Back to teams
+              </button>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] font-medium text-gray-600">
+                  Team name
+                </label>
+                <input
+                  type="text"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleCreateAndOpenPortal()}
+                  placeholder='e.g. "Drake fan pages"'
+                  className="w-full px-3 py-2 text-[13px] text-gray-800 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all placeholder:text-gray-300"
+                  autoFocus
+                />
+              </div>
+
+              <button
+                onClick={handleCreateAndOpenPortal}
+                disabled={!teamName.trim() || loading}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-semibold text-white bg-[#007AFF] hover:bg-[#0066DD] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
+              >
+                {loading ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                      <path d="M14.5 8a6.5 6.5 0 00-6.5-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    Creating team...
+                  </>
+                ) : (
+                  "Create & connect accounts"
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              {teamsLoading ? (
+                <p className="text-[12px] text-gray-400 text-center py-3">Loading teams...</p>
+              ) : existingTeams.length > 0 ? (
+                <>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    Pick an existing team to add accounts, or create a new one.
+                  </p>
+
+                  <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto">
+                    {existingTeams.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => openPortalForTeam(t)}
+                        disabled={loading}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors text-left disabled:opacity-60"
+                      >
+                        <span className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center text-[12px] font-bold text-gray-500 flex-shrink-0">
+                          {t.name[0]?.toUpperCase() ?? "?"}
+                        </span>
+                        <span className="text-[13px] font-medium text-gray-800 truncate">
+                          {t.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => setShowCreateNew(true)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[12px] font-medium text-gray-500 border border-dashed border-gray-200 hover:border-gray-300 hover:text-gray-700 transition-colors"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M8 3v10M3 8h10" />
+                    </svg>
+                    Create new team
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[12px] font-medium text-gray-600">
+                      Team name
+                    </label>
+                    <input
+                      type="text"
+                      value={teamName}
+                      onChange={(e) => setTeamName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleCreateAndOpenPortal()}
+                      placeholder='e.g. "Drake fan pages"'
+                      className="w-full px-3 py-2 text-[13px] text-gray-800 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all placeholder:text-gray-300"
+                      autoFocus
+                    />
+                  </div>
+
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    Name your team, then connect your Instagram,
+                    TikTok, or YouTube accounts.
+                  </p>
+
+                  <button
+                    onClick={handleCreateAndOpenPortal}
+                    disabled={!teamName.trim() || loading}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-semibold text-white bg-[#007AFF] hover:bg-[#0066DD] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
+                  >
+                    {loading ? (
+                      <>
+                        <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
+                          <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                          <path d="M14.5 8a6.5 6.5 0 00-6.5-6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                        Creating team...
+                      </>
+                    ) : (
+                      "Connect accounts"
+                    )}
+                  </button>
+                </>
+              )}
             </>
           )}
 
