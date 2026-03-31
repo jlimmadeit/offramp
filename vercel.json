@@ -2,15 +2,10 @@
   "buildCommand": "cd flowdify && npm install && npm run build",
   "outputDirectory": "flowdify/dist",
   "framework": null,
-  "functions": {
-    "api/**/*.ts": {
-      "runtime": "@vercel/node@3"
-    }
-  },
   "rewrites": [
     { "source": "/api/bundle/:path*", "destination": "/api/bundle/[...path]" },
     { "source": "/api/flowstage/:path*", "destination": "/api/flowstage/[...path]" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
