@@ -3,8 +3,8 @@
   "outputDirectory": "flowdify/dist",
   "framework": null,
   "rewrites": [
-    { "source": "/api/bundle/:path*", "destination": "/api/bundle/[...path]" },
-    { "source": "/api/flowstage/:path*", "destination": "/api/flowstage/[...path]" },
+    { "source": "/api/bundle/(.*)", "destination": "/api/bundle/[...path]?path=$1" },
+    { "source": "/api/flowstage/(.*)", "destination": "/api/flowstage/[...path]?path=$1" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
