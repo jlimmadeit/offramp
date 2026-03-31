@@ -48,9 +48,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const pathSegments = req.query.path;
-  const subpath = Array.isArray(pathSegments)
+  const rawSubpath = Array.isArray(pathSegments)
     ? pathSegments.filter(Boolean).join("/")
     : pathSegments ?? "";
+  const subpath = rawSubpath.replace(/\/+$/, "");
 
   const queryParts: string[] = [];
   for (const [key, val] of Object.entries(req.query)) {
@@ -62,8 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const qs = queryParts.length > 0 ? "?" + queryParts.join("&") : "";
 
-  const needsSlash = subpath.length > 0 && !subpath.includes(".");
-  const upstream = `https://api.bundle.social/api/v1/${subpath}${needsSlash ? "/" : ""}${qs}`;
+  const upstream = `https://api.bundle.social/api/v1/${subpath}/${qs}`;
 
   const headers: Record<string, string> = {
     "x-api-key": apiKey,
