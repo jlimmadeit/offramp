@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "./context/AuthContext";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
-import { setFlowstageKey } from "./lib/flowstage";
 import { setBundleUser } from "./lib/bundle";
 import Sidebar from "./components/Sidebar";
 import Canvas from "./components/Canvas";
@@ -349,10 +348,6 @@ export default function App() {
   const [page, setPage] = useState<Page>("canvas");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { open: helpOpen, setOpen: setHelpOpen } = useHelpGuide();
-
-  useEffect(() => {
-    setFlowstageKey(user?.flowstage_key ?? null);
-  }, [user?.flowstage_key]);
 
   useEffect(() => {
     setBundleUser(user?.id ?? null);

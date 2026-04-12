@@ -3,7 +3,11 @@ import { Handle, Position } from "@xyflow/react";
 import NodeShell from "../NodeShell";
 import { supabase } from "../../lib/supabase";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { createVideoEdit, getVideoEdit } from "../../lib/flowstage";
+import {
+  createVideoEdit,
+  getFlowstageAestheticDetail,
+  getVideoEdit,
+} from "../../lib/flowstage";
 
 interface EditsNodeData {
   dbId: number;
@@ -187,15 +191,42 @@ export default function EditsNode({ data }: { data: EditsNodeData }) {
     if (audioNodeIds.length > 0) {
       const { data: naRows } = await supabase
         .from("node_audios")
-        .select("audio_id, audios(flowstage_uuid, start_time, end_time)")
-        .in("node_id", audioNodeIds)
-        .limit(1);
+        .select("node_id, audio_id, audios(flowstage_uuid, start_time, end_time)")
+        .in("node_id", audioNodeIds);
 
-      const row = (naRows as any)?.[0];
-      if (row?.audios?.flowstage_uuid) {
-        audioId = row.audios.flowstage_uuid;
-        sectionStart = row.audios.start_time ?? 0;
-        sectionEnd = row.audios.end_time ?? 0;
+      let detail: Awaited<ReturnType<typeof getFlowstageAestheticDetail>>;
+      try {
+        detail = await getFlowstageAestheticDetail(aesthetic.flowstageId);
+      } catch (e) {
+        console.error("[Edits] Could not load aesthetic from Flowstage:", e);
+        return;
+      }
+
+      const fsAudioIds = new Set(detail.audios.map((a) => a.id));
+      const rows = ((naRows ?? []) as any[])
+        .filter((r: any) => {
+          const a = r?.audios;
+          const uuid =
+            Array.isArray(a) ? a[0]?.flowstage_uuid : a?.flowstage_uuid;
+          return uuid && fsAudioIds.has(uuid);
+        })
+        .sort((a: any, b: any) => (a.node_id ?? 0) - (b.node_id ?? 0));
+
+      const row = rows[0] as any;
+      const rowAudio = Array.isArray(row?.audios) ? row.audios[0] : row?.audios;
+
+      if (rowAudio?.flowstage_uuid) {
+        audioId = rowAudio.flowstage_uuid;
+        const fsAudio = detail.audios.find((a) => a.id === audioId);
+        const firstSection = fsAudio?.sections?.[0];
+        sectionStart =
+          firstSection?.start_time ?? rowAudio.start_time ?? 0;
+        sectionEnd = firstSection?.end_time ?? rowAudio.end_time ?? 0;
+      } else if ((naRows ?? []).length > 0) {
+        console.warn(
+          "[Edits] Local audio is not registered on this aesthetic in Flowstage. Use Sync from Flowstage or reconnect the audio to the aesthetic."
+        );
+        return;
       }
     }
 

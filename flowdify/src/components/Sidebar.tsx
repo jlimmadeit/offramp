@@ -10,8 +10,10 @@ import {
   attachHls,
 } from "../lib/mux";
 import {
+  fetchFlowstageAudiosPage,
   getFlowstageAesthetics,
   getFlowstageAestheticDetail,
+  type FlowstageAudio,
 } from "../lib/flowstage";
 import { supabase } from "../lib/supabase";
 import {
@@ -1423,10 +1425,72 @@ export default function Sidebar() {
     setSyncing(true);
     setLastSyncError(null);
     const currentUserId = user?.id ?? null;
+
+    const upsertFlowstageAudio = async (fsAudio: FlowstageAudio) => {
+      const { data: existing } = await supabase
+        .from("audios")
+        .select("id, url")
+        .eq("flowstage_uuid", fsAudio.id)
+        .maybeSingle();
+
+      let audioDbId: number;
+      let hasUrl = !!existing?.url;
+
+      const firstSection = fsAudio.sections?.[0];
+
+      if (existing) {
+        await supabase
+          .from("audios")
+          .update({
+            name: fsAudio.name,
+            song_duration: fsAudio.duration,
+            start_time: firstSection?.start_time ?? null,
+            end_time: firstSection?.end_time ?? null,
+          })
+          .eq("id", existing.id);
+        audioDbId = existing.id;
+      } else {
+        const audioInsert: Record<string, unknown> = {
+          flowstage_uuid: fsAudio.id,
+          name: fsAudio.name,
+          song_duration: fsAudio.duration,
+          start_time: firstSection?.start_time ?? null,
+          end_time: firstSection?.end_time ?? null,
+        };
+        if (currentUserId) audioInsert.user_id = currentUserId;
+        const { data: inserted, error } = await supabase
+          .from("audios")
+          .insert(audioInsert)
+          .select("id")
+          .single();
+        if (error || !inserted) {
+          console.error("[Sync] Insert audio failed:", error?.message);
+          return;
+        }
+        audioDbId = inserted.id;
+        hasUrl = false;
+      }
+
+      if (!hasUrl && fsAudio.url) {
+        await supabase.from("audios").update({ url: fsAudio.url }).eq("id", audioDbId);
+      }
+    };
+
     try {
       const aesthetics = await getFlowstageAesthetics();
       const presetEntries: { name: string; sourceAestheticId: string }[] = [];
       const seenPresets = new Set<string>();
+
+      // All user audios (including those not on any aesthetic), paginated
+      const PAGE = 50;
+      for (let offset = 0; ; offset += PAGE) {
+        const page = await fetchFlowstageAudiosPage(PAGE, offset);
+        if (page.length === 0) break;
+        for (const fsAudio of page) {
+          await upsertFlowstageAudio(fsAudio);
+        }
+        if (page.length < PAGE) break;
+      }
 
       for (const aesthetic of aesthetics) {
         let detail;
@@ -1435,62 +1499,6 @@ export default function Sidebar() {
         } catch (err) {
           console.error(`[Sync] Failed to fetch detail for ${aesthetic.id}:`, err);
           continue;
-        }
-
-        // Sync audios
-        if (detail.audios && detail.audios.length > 0) {
-          for (const fsAudio of detail.audios) {
-            const { data: existing } = await supabase
-              .from("audios")
-              .select("id, url")
-              .eq("flowstage_uuid", fsAudio.id)
-              .maybeSingle();
-
-            let audioDbId: number;
-            let hasUrl = !!existing?.url;
-
-            const firstSection = fsAudio.sections?.[0];
-
-            if (existing) {
-              await supabase
-                .from("audios")
-                .update({
-                  name: fsAudio.name,
-                  song_duration: fsAudio.duration,
-                  start_time: firstSection?.start_time ?? null,
-                  end_time: firstSection?.end_time ?? null,
-                })
-                .eq("id", existing.id);
-              audioDbId = existing.id;
-            } else {
-              const audioInsert: Record<string, unknown> = {
-                flowstage_uuid: fsAudio.id,
-                name: fsAudio.name,
-                song_duration: fsAudio.duration,
-                start_time: firstSection?.start_time ?? null,
-                end_time: firstSection?.end_time ?? null,
-              };
-              if (currentUserId) audioInsert.user_id = currentUserId;
-              const { data: inserted, error } = await supabase
-                .from("audios")
-                .insert(audioInsert)
-                .select("id")
-                .single();
-              if (error || !inserted) {
-                console.error("[Sync] Insert audio failed:", error?.message);
-                continue;
-              }
-              audioDbId = inserted.id;
-              hasUrl = false;
-            }
-
-            if (!hasUrl && fsAudio.url) {
-              await supabase
-                .from("audios")
-                .update({ url: fsAudio.url })
-                .eq("id", audioDbId);
-            }
-          }
         }
 
         // Collect preset names with source aesthetic

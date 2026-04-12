@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { supabase } from "../lib/supabase";
+import { setFlowstageKey } from "../lib/flowstage";
 
 export interface User {
   id: number;
@@ -66,7 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(({ data, error }) => {
         if (error || !data) {
           localStorage.removeItem(STORAGE_KEY);
+          setFlowstageKey(null);
         } else {
+          setFlowstageKey(data.flowstage_key ?? null);
           setUser(data);
         }
         setLoading(false);
@@ -96,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const { password: _, ...userData } = data;
+      setFlowstageKey(userData.flowstage_key ?? null);
       setUser(userData);
       localStorage.setItem(STORAGE_KEY, String(data.id));
       return null;
@@ -145,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error || !data) return error?.message ?? "Sign up failed.";
 
+      setFlowstageKey(data.flowstage_key ?? null);
       setUser(data);
       localStorage.setItem(STORAGE_KEY, String(data.id));
       return null;
@@ -153,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(() => {
+    setFlowstageKey(null);
     setUser(null);
     localStorage.removeItem(STORAGE_KEY);
   }, []);
@@ -168,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .update({ flowstage_key: null })
           .eq("id", user.id);
         if (error) return error.message;
+        setFlowstageKey(null);
         setUser((prev) => (prev ? { ...prev, flowstage_key: null } : prev));
         return null;
       }
@@ -189,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .update({ flowstage_key: encrypted })
           .eq("id", user.id);
         if (error) return error.message;
+        setFlowstageKey(encrypted);
         setUser((prev) => (prev ? { ...prev, flowstage_key: encrypted } : prev));
         return null;
       } catch (err) {

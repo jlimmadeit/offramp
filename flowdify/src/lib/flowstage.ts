@@ -1,15 +1,30 @@
 const FLOWSTAGE_PROXY = "/api/flowstage";
 
+const SESSION_KEY = "flowdify_encrypted_flowstage_key";
+
 let _flowstageKey: string | null = null;
 
 export function setFlowstageKey(key: string | null) {
   _flowstageKey = key;
+  if (typeof window !== "undefined") {
+    if (key) sessionStorage.setItem(SESSION_KEY, key);
+    else sessionStorage.removeItem(SESSION_KEY);
+  }
+}
+
+function flowstageKeyForRequest(): string | null {
+  if (_flowstageKey) return _flowstageKey;
+  if (typeof window !== "undefined") {
+    return sessionStorage.getItem(SESSION_KEY);
+  }
+  return null;
 }
 
 async function fsFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
-  if (_flowstageKey) {
-    headers.set("X-Flowstage-Key", _flowstageKey);
+  const key = flowstageKeyForRequest();
+  if (key) {
+    headers.set("X-Flowstage-Key", key);
   }
 
   const res = await fetch(`${FLOWSTAGE_PROXY}${path}`, {
@@ -98,6 +113,35 @@ export async function getFlowstageAestheticDetail(
 ): Promise<FlowstageAestheticDetail> {
   const res = await fsFetch(`/v1/aesthetics/${aestheticId}`);
   return res.json();
+}
+
+/** Parses GET /v1/audios response (shape varies slightly by API version). */
+function parseFlowstageAudiosListBody(body: unknown): FlowstageAudio[] {
+  if (Array.isArray(body)) return body as FlowstageAudio[];
+  if (body && typeof body === "object") {
+    const o = body as Record<string, unknown>;
+    if (Array.isArray(o.audios)) return o.audios as FlowstageAudio[];
+    if (Array.isArray(o.items)) return o.items as FlowstageAudio[];
+    if (Array.isArray(o.data)) return o.data as FlowstageAudio[];
+  }
+  return [];
+}
+
+/**
+ * List all audios for the authenticated user (including those not attached to any aesthetic).
+ * Paginated: max 50 per page per API.
+ */
+export async function fetchFlowstageAudiosPage(
+  limit = 50,
+  offset = 0
+): Promise<FlowstageAudio[]> {
+  const params = new URLSearchParams({
+    limit: String(Math.min(50, Math.max(1, limit))),
+    offset: String(Math.max(0, offset)),
+  });
+  const res = await fsFetch(`/v1/audios?${params}`);
+  const body = await res.json();
+  return parseFlowstageAudiosListBody(body);
 }
 
 export async function addAudioToFlowstageAesthetic(
