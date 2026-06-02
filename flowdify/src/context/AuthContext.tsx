@@ -48,6 +48,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setFlowstageKey(user?.flowstage_key ?? null);
+    // Drop legacy sessionStorage fallback from older builds
+    sessionStorage.removeItem("flowdify_encrypted_flowstage_key");
+  }, [user?.flowstage_key]);
+
+  useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
       setLoading(false);
@@ -85,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (error || !data) return "No account found with that email.";
+      if (!data.password) return "Account is missing a password. Try creating a new account.";
 
       try {
         const res = await fetch("/api/auth/verify-password", {
@@ -92,10 +99,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password, hash: data.password }),
         });
-        const { valid } = await res.json();
-        if (!valid) return "Incorrect password.";
+        const body = await res.json().catch(() => null);
+        if (!body || typeof body.valid !== "boolean") {
+          return "Auth server unavailable. Run `cd flowdify && npm run dev` and open http://localhost:3000";
+        }
+        if (!body.valid) return "Incorrect password.";
       } catch {
-        return "Failed to verify password.";
+        return "Auth server unavailable. Run `cd flowdify && npm run dev` and open http://localhost:3000";
       }
 
       const { password: _, ...userData } = data;

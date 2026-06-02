@@ -13,6 +13,7 @@ import {
   fetchAllFlowstageAudios,
   getFlowstageAesthetics,
   getFlowstageAestheticDetail,
+  setFlowstageKey,
   type FlowstageAudio,
 } from "../lib/flowstage";
 import { supabase } from "../lib/supabase";
@@ -516,7 +517,13 @@ interface AudioBucketItem {
   tiktokSoundEndMs: number | null;
 }
 
-function AudioBucket({ reloadKey }: { reloadKey: number }) {
+function AudioBucket({
+  reloadKey,
+  flowstageOrder,
+}: {
+  reloadKey: number;
+  flowstageOrder: string[];
+}) {
   const { user } = useAuth();
   const [audios, setAudios] = useState<AudioBucketItem[]>([]);
   const dbLoadedRef = useRef(false);
@@ -579,28 +586,52 @@ function AudioBucket({ reloadKey }: { reloadKey: number }) {
   const loadFromDb = useCallback(async () => {
     let query = supabase
       .from("audios")
-      .select("id, flowstage_uuid, name, song_duration, url, start_time, end_time, tiktok_sound_id, tiktok_sound_start_ms, tiktok_sound_end_ms")
+      .select("id, flowstage_uuid, name, song_duration, url, start_time, end_time, tiktok_sound_id, tiktok_sound_start_ms, tiktok_sound_end_ms, user_id")
       .not("flowstage_uuid", "is", null)
       .order("name");
-    if (user) query = query.eq("user_id", user.id);
+    if (flowstageOrder.length === 0 && user) {
+      query = query.eq("user_id", user.id);
+    }
     const { data: rows } = await query;
 
     if (!rows) return;
 
-    const items: AudioBucketItem[] = rows.map((r) => ({
-      dbId: r.id,
-      flowstageUuid: r.flowstage_uuid!,
-      name: r.name,
-      duration: r.song_duration,
-      url: r.url ?? null,
-      startTime: r.start_time ?? null,
-      endTime: r.end_time ?? null,
-      tiktokSoundId: r.tiktok_sound_id ?? null,
-      tiktokSoundStartMs: r.tiktok_sound_start_ms ?? null,
-      tiktokSoundEndMs: r.tiktok_sound_end_ms ?? null,
-    }));
+    const order = new Map(flowstageOrder.map((id, idx) => [id, idx]));
+    const byFlowstageUuid = new Map<string, (typeof rows)[number]>();
+    for (const row of rows.filter(
+      (r) => r.user_id === user?.id || (r.flowstage_uuid && order.has(r.flowstage_uuid))
+    )) {
+      if (!row.flowstage_uuid) continue;
+      const existing = byFlowstageUuid.get(row.flowstage_uuid);
+      if (!existing || (user && row.user_id === user.id && existing.user_id !== user.id)) {
+        byFlowstageUuid.set(row.flowstage_uuid, row);
+      }
+    }
+
+    const items: AudioBucketItem[] = Array.from(byFlowstageUuid.values())
+      .map((r) => ({
+        dbId: r.id,
+        flowstageUuid: r.flowstage_uuid!,
+        name: r.name,
+        duration: r.song_duration,
+        url: r.url ?? null,
+        startTime: r.start_time ?? null,
+        endTime: r.end_time ?? null,
+        tiktokSoundId: r.tiktok_sound_id ?? null,
+        tiktokSoundStartMs: r.tiktok_sound_start_ms ?? null,
+        tiktokSoundEndMs: r.tiktok_sound_end_ms ?? null,
+      }))
+      .sort((a, b) => {
+        if (flowstageOrder.length === 0) return a.name.localeCompare(b.name);
+        const aOrder = order.get(a.flowstageUuid);
+        const bOrder = order.get(b.flowstageUuid);
+        if (aOrder != null && bOrder != null) return aOrder - bOrder;
+        if (aOrder != null) return -1;
+        if (bOrder != null) return 1;
+        return a.name.localeCompare(b.name);
+      });
     setAudios(items);
-  }, []);
+  }, [flowstageOrder, user]);
 
   useEffect(() => {
     if (!dbLoadedRef.current) {
@@ -1419,19 +1450,42 @@ export default function Sidebar() {
   const { user } = useAuth();
   const [syncing, setSyncing] = useState(false);
   const [lastSyncError, setLastSyncError] = useState<string | null>(null);
+  const [lastSyncMessage, setLastSyncMessage] = useState<string | null>(null);
+  const [flowstageAudioOrder, setFlowstageAudioOrder] = useState<string[]>([]);
   const [syncVersion, setSyncVersion] = useState(0);
 
   const syncFromFlowstage = useCallback(async () => {
     setSyncing(true);
     setLastSyncError(null);
-    const currentUserId = user?.id ?? null;
+    setLastSyncMessage(null);
+
+    if (!user?.id) {
+      setLastSyncError("Sign in to sync from Flowstage.");
+      setSyncing(false);
+      return;
+    }
+
+    if (!user?.flowstage_key) {
+      setLastSyncError("Add your Flowstage API key in Settings first.");
+      setSyncing(false);
+      return;
+    }
+
+    // Use the encrypted key from Settings for this user, even after HMR reloads.
+    setFlowstageKey(user.flowstage_key);
+
+    const currentUserId = user.id;
+    let syncedCount = 0;
+    let failedCount = 0;
 
     const upsertFlowstageAudio = async (fsAudio: FlowstageAudio) => {
-      const { data: existing } = await supabase
+      let query = supabase
         .from("audios")
         .select("id, url")
         .eq("flowstage_uuid", fsAudio.id)
-        .maybeSingle();
+        .eq("user_id", currentUserId);
+
+      const { data: existing } = await query.maybeSingle();
 
       let audioDbId: number;
       let hasUrl = !!existing?.url;
@@ -1439,7 +1493,7 @@ export default function Sidebar() {
       const firstSection = fsAudio.sections?.[0];
 
       if (existing) {
-        await supabase
+        const { error } = await supabase
           .from("audios")
           .update({
             name: fsAudio.name,
@@ -1447,24 +1501,30 @@ export default function Sidebar() {
             start_time: firstSection?.start_time ?? null,
             end_time: firstSection?.end_time ?? null,
           })
-          .eq("id", existing.id);
+          .eq("id", existing.id)
+          .eq("user_id", currentUserId);
+        if (error) {
+          console.error("[Sync] Update audio failed:", error.message);
+          failedCount++;
+          return;
+        }
         audioDbId = existing.id;
       } else {
-        const audioInsert: Record<string, unknown> = {
-          flowstage_uuid: fsAudio.id,
-          name: fsAudio.name,
-          song_duration: fsAudio.duration,
-          start_time: firstSection?.start_time ?? null,
-          end_time: firstSection?.end_time ?? null,
-        };
-        if (currentUserId) audioInsert.user_id = currentUserId;
         const { data: inserted, error } = await supabase
           .from("audios")
-          .insert(audioInsert)
+          .insert({
+            flowstage_uuid: fsAudio.id,
+            name: fsAudio.name,
+            song_duration: fsAudio.duration,
+            start_time: firstSection?.start_time ?? null,
+            end_time: firstSection?.end_time ?? null,
+            user_id: currentUserId,
+          })
           .select("id")
           .single();
         if (error || !inserted) {
           console.error("[Sync] Insert audio failed:", error?.message);
+          failedCount++;
           return;
         }
         audioDbId = inserted.id;
@@ -1472,8 +1532,14 @@ export default function Sidebar() {
       }
 
       if (!hasUrl && fsAudio.url) {
-        await supabase.from("audios").update({ url: fsAudio.url }).eq("id", audioDbId);
+        await supabase
+          .from("audios")
+          .update({ url: fsAudio.url })
+          .eq("id", audioDbId)
+          .eq("user_id", currentUserId);
       }
+
+      syncedCount++;
     };
 
     try {
@@ -1483,8 +1549,18 @@ export default function Sidebar() {
 
       // All user audios (including those not on any aesthetic), paginated via GET /v1/audios
       const allAudios = await fetchAllFlowstageAudios();
+      if (allAudios.length === 0) {
+        setLastSyncError("No audios returned from Flowstage. Add your API key in Settings.");
+        return;
+      }
+
       for (const fsAudio of allAudios) {
         await upsertFlowstageAudio(fsAudio);
+      }
+
+      if (syncedCount === 0 && failedCount > 0) {
+        setLastSyncError(`Failed to save ${failedCount} audio(s) to your library.`);
+        return;
       }
 
       for (const aesthetic of aesthetics) {
@@ -1544,6 +1620,8 @@ export default function Sidebar() {
       }
 
       setSyncVersion((v) => v + 1);
+      setFlowstageAudioOrder(allAudios.map((audio) => audio.id));
+      setLastSyncMessage(`Synced ${syncedCount} audio${syncedCount === 1 ? "" : "s"} from Flowstage.`);
     } catch (err) {
       console.error("[Sync] Sync failed:", err);
       setLastSyncError(err instanceof Error ? err.message : "Sync failed");
@@ -1597,6 +1675,9 @@ export default function Sidebar() {
         {lastSyncError && (
           <p className="text-[10px] text-red-500 mt-1.5 px-1">{lastSyncError}</p>
         )}
+        {lastSyncMessage && (
+          <p className="text-[10px] text-green-600 mt-1.5 px-1">{lastSyncMessage}</p>
+        )}
       </div>
 
       {/* Node types */}
@@ -1632,7 +1713,7 @@ export default function Sidebar() {
 
       {/* Audio Bucket */}
       <CollapsibleSection title="Audio bucket" defaultOpen={false} flex>
-        <AudioBucket reloadKey={syncVersion} />
+        <AudioBucket reloadKey={syncVersion} flowstageOrder={flowstageAudioOrder} />
       </CollapsibleSection>
 
       {/* Edit Style Bucket */}

@@ -1,23 +1,18 @@
 const FLOWSTAGE_PROXY = "/api/flowstage";
 
-const SESSION_KEY = "flowdify_encrypted_flowstage_key";
-
 let _flowstageKey: string | null = null;
 
+/** Set from AuthContext when the user's Settings key loads or changes. */
 export function setFlowstageKey(key: string | null) {
   _flowstageKey = key;
-  if (typeof window !== "undefined") {
-    if (key) sessionStorage.setItem(SESSION_KEY, key);
-    else sessionStorage.removeItem(SESSION_KEY);
-  }
 }
 
 function flowstageKeyForRequest(): string | null {
-  if (_flowstageKey) return _flowstageKey;
-  if (typeof window !== "undefined") {
-    return sessionStorage.getItem(SESSION_KEY);
-  }
-  return null;
+  return _flowstageKey;
+}
+
+export function hasFlowstageKey(): boolean {
+  return !!_flowstageKey;
 }
 
 async function fsFetch(path: string, init?: RequestInit): Promise<Response> {
