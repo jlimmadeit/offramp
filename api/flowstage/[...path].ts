@@ -26,10 +26,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const pathSegments = req.query.path;
-  const subpath = Array.isArray(pathSegments)
-    ? pathSegments.join("/")
+  const rawSubpath = Array.isArray(pathSegments)
+    ? pathSegments.filter(Boolean).join("/")
     : pathSegments ?? "";
-  const upstream = `https://api.theflowstage.com/${subpath}`;
+  const subpath = rawSubpath.replace(/\/+$/, "");
+
+  const queryParts: string[] = [];
+  for (const [key, val] of Object.entries(req.query)) {
+    if (key === "path") continue;
+    const values = Array.isArray(val) ? val : [val];
+    for (const v of values) {
+      if (v != null) queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+    }
+  }
+  const qs = queryParts.length > 0 ? "?" + queryParts.join("&") : "";
+
+  const upstream = `https://api.theflowstage.com/${subpath}${qs}`;
 
   const headers: Record<string, string> = {
     "X-API-Key": apiKey,

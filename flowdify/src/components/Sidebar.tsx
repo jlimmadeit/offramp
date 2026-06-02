@@ -10,7 +10,7 @@ import {
   attachHls,
 } from "../lib/mux";
 import {
-  fetchFlowstageAudiosPage,
+  fetchAllFlowstageAudios,
   getFlowstageAesthetics,
   getFlowstageAestheticDetail,
   type FlowstageAudio,
@@ -1481,15 +1481,10 @@ export default function Sidebar() {
       const presetEntries: { name: string; sourceAestheticId: string }[] = [];
       const seenPresets = new Set<string>();
 
-      // All user audios (including those not on any aesthetic), paginated
-      const PAGE = 50;
-      for (let offset = 0; ; offset += PAGE) {
-        const page = await fetchFlowstageAudiosPage(PAGE, offset);
-        if (page.length === 0) break;
-        for (const fsAudio of page) {
-          await upsertFlowstageAudio(fsAudio);
-        }
-        if (page.length < PAGE) break;
+      // All user audios (including those not on any aesthetic), paginated via GET /v1/audios
+      const allAudios = await fetchAllFlowstageAudios();
+      for (const fsAudio of allAudios) {
+        await upsertFlowstageAudio(fsAudio);
       }
 
       for (const aesthetic of aesthetics) {

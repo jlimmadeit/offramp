@@ -115,6 +115,11 @@ export async function getFlowstageAestheticDetail(
   return res.json();
 }
 
+export interface FlowstageAudiosPage {
+  audios: FlowstageAudio[];
+  total: number;
+}
+
 /** Parses GET /v1/audios response (shape varies slightly by API version). */
 function parseFlowstageAudiosListBody(body: unknown): FlowstageAudio[] {
   if (Array.isArray(body)) return body as FlowstageAudio[];
@@ -127,21 +132,43 @@ function parseFlowstageAudiosListBody(body: unknown): FlowstageAudio[] {
   return [];
 }
 
+function parseFlowstageAudiosTotal(body: unknown, pageLength: number): number {
+  if (body && typeof body === "object") {
+    const total = (body as Record<string, unknown>).total;
+    if (typeof total === "number" && Number.isFinite(total)) return total;
+  }
+  return pageLength;
+}
+
 /**
- * List all audios for the authenticated user (including those not attached to any aesthetic).
+ * List audios for the authenticated user (including those not attached to any aesthetic).
  * Paginated: max 50 per page per API.
  */
 export async function fetchFlowstageAudiosPage(
   limit = 50,
   offset = 0
-): Promise<FlowstageAudio[]> {
+): Promise<FlowstageAudiosPage> {
   const params = new URLSearchParams({
     limit: String(Math.min(50, Math.max(1, limit))),
     offset: String(Math.max(0, offset)),
   });
   const res = await fsFetch(`/v1/audios?${params}`);
   const body = await res.json();
-  return parseFlowstageAudiosListBody(body);
+  const audios = parseFlowstageAudiosListBody(body);
+  return { audios, total: parseFlowstageAudiosTotal(body, audios.length) };
+}
+
+/** Fetch every audio on the account via GET /v1/audios pagination. */
+export async function fetchAllFlowstageAudios(): Promise<FlowstageAudio[]> {
+  const PAGE = 50;
+  const all: FlowstageAudio[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { audios, total } = await fetchFlowstageAudiosPage(PAGE, offset);
+    if (audios.length === 0) break;
+    all.push(...audios);
+    if (offset + audios.length >= total) break;
+  }
+  return all;
 }
 
 export async function addAudioToFlowstageAesthetic(

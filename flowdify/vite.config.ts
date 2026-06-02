@@ -681,4 +681,7 @@ function fetchProxyPlugin(): PluginOption {
 export default defineConfig({
   plugins: [react(), muxUploadPlugin(), flowstageProxyPlugin(), bundleSocialProxyPlugin(), fetchProxyPlugin()],
   envDir: "..",
+  server: {
+    port: 3000,
+  },
 });
