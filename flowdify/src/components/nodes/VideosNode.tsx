@@ -42,6 +42,9 @@ export default function VideosNode({ data }: { data: VideosNodeData }) {
   const hlsCleanupRef = useRef<(() => void) | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploads, setUploads] = useState<UploadingVideo[]>([]);
+  const uploadQueueRef = useRef<Array<{ file: File; signature: string }>>([]);
+  const uploadPumpRunningRef = useRef(false);
+  const queuedSignaturesRef = useRef<Set<string>>(new Set());
 
   const loadVideos = useCallback(async () => {
     const { data: rows } = await supabase
@@ -164,14 +167,37 @@ export default function VideosNode({ data }: { data: VideosNodeData }) {
     [data.dbId, handleBucketFileDrop]
   );
 
+  const pumpUploadQueue = useCallback(async () => {
+    if (uploadPumpRunningRef.current) return;
+    uploadPumpRunningRef.current = true;
+    try {
+      while (uploadQueueRef.current.length > 0) {
+        const next = uploadQueueRef.current.shift();
+        if (!next) continue;
+        try {
+          await processUpload(next.file);
+        } finally {
+          queuedSignaturesRef.current.delete(next.signature);
+        }
+      }
+    } finally {
+      uploadPumpRunningRef.current = false;
+    }
+  }, [processUpload]);
+
   const handleFileSelect = useCallback(
     (fileList: FileList | null) => {
       if (!fileList) return;
-      Array.from(fileList).forEach((file) => {
-        if (file.type.startsWith("video/")) processUpload(file);
-      });
+      for (const file of Array.from(fileList)) {
+        if (!file.type.startsWith("video/")) continue;
+        const signature = `${file.name}:${file.size}:${file.lastModified}`;
+        if (queuedSignaturesRef.current.has(signature)) continue;
+        queuedSignaturesRef.current.add(signature);
+        uploadQueueRef.current.push({ file, signature });
+      }
+      void pumpUploadQueue();
     },
-    [processUpload]
+    [pumpUploadQueue]
   );
 
   const previewVideo = previewId != null ? videos.find((v) => v.id === previewId) : null;

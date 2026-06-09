@@ -174,8 +174,8 @@ export async function createBundlePost(params: {
     if (tiktokSoundId) {
       const musicInfo: Record<string, unknown> = {
         musicSoundId: tiktokSoundId,
-        musicSoundVolume: 100,
-        videoOriginalSoundVolume: 0,
+        musicSoundVolume: 5,
+        videoOriginalSoundVolume: 95,
         musicSoundStart: tiktokSoundStartMs ?? 0,
       };
       if (tiktokSoundEndMs && tiktokSoundEndMs > (tiktokSoundStartMs ?? 0)) {

@@ -18,8 +18,13 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { useAuth } from "../context/AuthContext";
 import { ACCENT_COLORS, type NodeKindName } from "../lib/types";
-import { createFlowstageAesthetic } from "../lib/flowstage";
+import {
+  createFlowstageAesthetic,
+  getFlowstageAesthetics,
+  setFlowstageKey,
+} from "../lib/flowstage";
 import VideosNode from "./nodes/VideosNode";
 import AudioNode from "./nodes/AudioNode";
 import TextHooksNode from "./nodes/TextHooksNode";
@@ -100,6 +105,7 @@ function CanvasInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const { screenToFlowPosition } = useReactFlow();
+  const { user } = useAuth();
   const debounceTimers = useRef<
     Record<string, ReturnType<typeof setTimeout>>
   >({});
@@ -358,14 +364,26 @@ function CanvasInner() {
 
       if (kindName === "aesthetic") {
         setModalLoading(true);
+        let flowstageUuid: string | undefined;
         try {
-          const aesthetic = await createFlowstageAesthetic(name);
-          await insertNode(name, x, y, kindId, aesthetic.id);
+          if (user?.flowstage_key) {
+            setFlowstageKey(user.flowstage_key);
+            try {
+              const aesthetic = await createFlowstageAesthetic(name);
+              flowstageUuid = aesthetic.id;
+            } catch (err) {
+              console.warn("Flowstage create aesthetic failed, reusing existing one:", err);
+              const existing = await getFlowstageAesthetics();
+              const match =
+                existing.find((a) => a.name?.toLowerCase() === name.toLowerCase()) ??
+                existing[0];
+              flowstageUuid = match?.id;
+            }
+          }
         } catch (err) {
-          console.error("Flowstage create aesthetic failed:", err);
-          setModalLoading(false);
-          return;
+          console.error("Flowstage aesthetic lookup failed:", err);
         }
+        await insertNode(name, x, y, kindId, flowstageUuid);
         setModalLoading(false);
       } else {
         await insertNode(name, x, y, kindId);
@@ -373,7 +391,7 @@ function CanvasInner() {
 
       setPendingDrop(null);
     },
-    [pendingDrop, insertNode]
+    [pendingDrop, insertNode, user?.flowstage_key]
   );
 
   const handleModalCancel = useCallback(() => {

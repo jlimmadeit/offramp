@@ -4,6 +4,7 @@ import NodeShell from "../NodeShell";
 import { useWorkspace, type AccountMember } from "../../context/WorkspaceContext";
 import { supabase } from "../../lib/supabase";
 import { uploadToBundle, createBundlePost, type BundlePlatform } from "../../lib/bundle";
+import { getVideoEdit } from "../../lib/flowstage";
 
 const PLATFORM_COLORS: Record<string, string> = {
   TIKTOK: "#000000",
@@ -59,7 +60,12 @@ export default function AccountNode({
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [expandedAccounts, setExpandedAccounts] = useState<Set<number>>(new Set());
   const [availableEditsCount, setAvailableEditsCount] = useState(0);
-  const [availableEdits, setAvailableEdits] = useState<{ id: number; name: string; renderUrl: string }[]>([]);
+  const [availableEdits, setAvailableEdits] = useState<{
+    id: number;
+    name: string;
+    renderUrl: string;
+    flowstageEditId: string | null;
+  }[]>([]);
 
   const loadPosts = useCallback(async () => {
     if (members.length === 0) return;
@@ -120,7 +126,7 @@ export default function AccountNode({
 
     const { data: neRows } = await supabase
       .from("node_edits")
-      .select("edit_id, edits(name, render_url)")
+      .select("edit_id, edits(name, render_url, flowstage_edit_id)")
       .in("node_id", editsNodes.map((n) => n.id));
 
     const rendered = (neRows as any[] ?? []).filter((r) => r.edits?.render_url);
@@ -143,6 +149,7 @@ export default function AccountNode({
         id: r.edit_id as number,
         name: (r.edits?.name ?? "Untitled") as string,
         renderUrl: r.edits.render_url as string,
+        flowstageEditId: (r.edits?.flowstage_edit_id ?? null) as string | null,
       }));
 
     setAvailableEditsCount(ready.length);
@@ -163,7 +170,7 @@ export default function AccountNode({
     const editsNodeIds = editsNodes.map((n) => n.id);
     const { data: neRows } = await supabase
       .from("node_edits")
-      .select("edit_id, edits(id, name, render_url)")
+      .select("edit_id, edits(id, name, render_url, flowstage_edit_id)")
       .in("node_id", editsNodeIds);
 
     const renderedEdits = (neRows as any[] ?? [])
@@ -172,6 +179,7 @@ export default function AccountNode({
         id: r.edits.id as number,
         name: (r.edits.name ?? "Untitled") as string,
         renderUrl: r.edits.render_url as string,
+        flowstageEditId: (r.edits.flowstage_edit_id ?? null) as string | null,
       }));
 
     if (renderedEdits.length === 0) {
@@ -245,21 +253,12 @@ export default function AccountNode({
       return;
     }
 
-    const [groupRes, membersRes] = await Promise.all([
-      supabase
-        .from("account_groups")
-        .select("max_post_per_account_per_day")
-        .eq("id", groupId)
-        .single(),
-      supabase
-        .from("account_group_members")
-        .select("account_id, accounts(id, bundle_id, bundle_team_id, platform, username)")
-        .eq("account_group_id", groupId)
-        .eq("is_active", true),
-    ]);
+    const { data: dbMembers } = await supabase
+      .from("account_group_members")
+      .select("account_id, accounts(id, bundle_id, bundle_team_id, platform, username)")
+      .eq("account_group_id", groupId)
+      .eq("is_active", true);
 
-    const maxPerDay = (groupRes.data as any)?.max_post_per_account_per_day ?? 3;
-    const dbMembers = membersRes.data as any[];
     if (!dbMembers || dbMembers.length === 0) {
       console.warn("[Account] No active members in account group");
       return;
@@ -279,11 +278,16 @@ export default function AccountNode({
       .eq("account_id", account.id)
       .gte("scheduled_time", todayStr);
 
-    const postsByDay: Record<string, number> = {};
+    const POSTS_PER_DAY = 2;
+    const SLOT_HOURS = [9, 17]; // 8-hour gap
+    const slotsByDay: Record<string, Set<number>> = {};
     for (const post of existingPosts ?? []) {
       if (post.scheduled_time) {
-        const day = new Date(post.scheduled_time).toISOString().split("T")[0]!;
-        postsByDay[day] = (postsByDay[day] ?? 0) + 1;
+        const ts = new Date(post.scheduled_time);
+        const day = ts.toISOString().split("T")[0]!;
+        if (!slotsByDay[day]) slotsByDay[day] = new Set<number>();
+        const slotIdx = ts.getHours() >= SLOT_HOURS[1] ? 1 : 0;
+        slotsByDay[day]!.add(slotIdx);
       }
     }
 
@@ -293,21 +297,34 @@ export default function AccountNode({
       const cursor = new Date();
       cursor.setHours(0, 0, 0, 0);
       const platform = (account.platform ?? "TIKTOK").toUpperCase() as BundlePlatform;
+      const minAllowedMs = Date.now() + 5 * 60 * 1000;
 
       for (const edit of newEdits) {
         let dateStr = "";
-        while (true) {
+        let scheduled: Date | null = null;
+        while (!scheduled) {
           dateStr = cursor.toISOString().split("T")[0]!;
-          if ((postsByDay[dateStr] ?? 0) < maxPerDay) break;
-          cursor.setDate(cursor.getDate() + 1);
-        }
+          if (!slotsByDay[dateStr]) slotsByDay[dateStr] = new Set<number>();
+          const usedSlots = slotsByDay[dateStr]!;
 
-        const hours = 9 + Math.floor(Math.random() * 11);
-        const minutes = Math.floor(Math.random() * 60);
-        const scheduled = new Date(cursor);
-        scheduled.setHours(hours, minutes, 0, 0);
-        if (scheduled.getTime() < Date.now()) {
-          scheduled.setTime(Date.now() + 5 * 60 * 1000);
+          if (usedSlots.size >= POSTS_PER_DAY) {
+            cursor.setDate(cursor.getDate() + 1);
+            continue;
+          }
+
+          for (let slotIdx = 0; slotIdx < SLOT_HOURS.length; slotIdx += 1) {
+            if (usedSlots.has(slotIdx)) continue;
+            const candidate = new Date(cursor);
+            candidate.setHours(SLOT_HOURS[slotIdx]!, 0, 0, 0);
+            if (candidate.getTime() < minAllowedMs) continue;
+            scheduled = candidate;
+            usedSlots.add(slotIdx);
+            break;
+          }
+
+          if (!scheduled) {
+            cursor.setDate(cursor.getDate() + 1);
+          }
         }
 
         const { data: postRow, error: insertErr } = await supabase
@@ -341,14 +358,33 @@ export default function AccountNode({
         ]);
         setExpandedAccounts((prev) => new Set(prev).add(account.id));
 
-        postsByDay[dateStr] = (postsByDay[dateStr] ?? 0) + 1;
-
         try {
+          let renderUrl = edit.renderUrl;
+          if (edit.flowstageEditId) {
+            const latest = await getVideoEdit(edit.flowstageEditId);
+            if (latest.render_url) {
+              renderUrl = latest.render_url;
+              if (latest.render_url !== edit.renderUrl) {
+                await supabase
+                  .from("edits")
+                  .update({ render_url: latest.render_url })
+                  .eq("id", edit.id);
+              }
+            }
+          }
+          if (!renderUrl) {
+            throw new Error("Edit has no render URL.");
+          }
+
           const videoRes = await fetch("/api/fetch-proxy", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: edit.renderUrl }),
+            body: JSON.stringify({ url: renderUrl }),
           });
+          if (!videoRes.ok) {
+            const errText = await videoRes.text();
+            throw new Error(`Video fetch failed (${videoRes.status}): ${errText.slice(0, 200)}`);
+          }
           const videoBlob = await videoRes.blob();
           const upload = await uploadToBundle(
             account.bundle_team_id,

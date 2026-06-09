@@ -507,6 +507,7 @@ function VideoBucket() {
 interface AudioBucketItem {
   dbId: number;
   flowstageUuid: string;
+  sectionKey: string;
   name: string;
   duration: number | null;
   url: string | null;
@@ -584,6 +585,13 @@ function AudioBucket({
   }, [stopPlayback]);
 
   const loadFromDb = useCallback(async () => {
+    const makeSectionKey = (row: {
+      flowstage_uuid: string | null;
+      start_time: number | null;
+      end_time: number | null;
+    }) =>
+      `${row.flowstage_uuid ?? ""}:${row.start_time ?? ""}:${row.end_time ?? ""}`;
+
     let query = supabase
       .from("audios")
       .select("id, flowstage_uuid, name, song_duration, url, start_time, end_time, tiktok_sound_id, tiktok_sound_start_ms, tiktok_sound_end_ms, user_id")
@@ -597,21 +605,23 @@ function AudioBucket({
     if (!rows) return;
 
     const order = new Map(flowstageOrder.map((id, idx) => [id, idx]));
-    const byFlowstageUuid = new Map<string, (typeof rows)[number]>();
+    const bySectionKey = new Map<string, (typeof rows)[number]>();
     for (const row of rows.filter(
-      (r) => r.user_id === user?.id || (r.flowstage_uuid && order.has(r.flowstage_uuid))
+      (r) => r.user_id === user?.id || (r.flowstage_uuid && order.has(makeSectionKey(r)))
     )) {
       if (!row.flowstage_uuid) continue;
-      const existing = byFlowstageUuid.get(row.flowstage_uuid);
+      const sectionKey = makeSectionKey(row);
+      const existing = bySectionKey.get(sectionKey);
       if (!existing || (user && row.user_id === user.id && existing.user_id !== user.id)) {
-        byFlowstageUuid.set(row.flowstage_uuid, row);
+        bySectionKey.set(sectionKey, row);
       }
     }
 
-    const items: AudioBucketItem[] = Array.from(byFlowstageUuid.values())
+    const items: AudioBucketItem[] = Array.from(bySectionKey.values())
       .map((r) => ({
         dbId: r.id,
         flowstageUuid: r.flowstage_uuid!,
+        sectionKey: makeSectionKey(r),
         name: r.name,
         duration: r.song_duration,
         url: r.url ?? null,
@@ -623,8 +633,8 @@ function AudioBucket({
       }))
       .sort((a, b) => {
         if (flowstageOrder.length === 0) return a.name.localeCompare(b.name);
-        const aOrder = order.get(a.flowstageUuid);
-        const bOrder = order.get(b.flowstageUuid);
+        const aOrder = order.get(a.sectionKey);
+        const bOrder = order.get(b.sectionKey);
         if (aOrder != null && bOrder != null) return aOrder - bOrder;
         if (aOrder != null) return -1;
         if (bOrder != null) return 1;
@@ -690,7 +700,7 @@ function AudioBucket({
       {audios.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-[10px] text-gray-400 px-1">
-            {audios.length} song{audios.length !== 1 ? "s" : ""}
+            {audios.length} audio section{audios.length !== 1 ? "s" : ""}
           </span>
           {audios.map((a) => {
             const isPlaying = playingId === a.dbId;
@@ -1478,28 +1488,61 @@ export default function Sidebar() {
     let syncedCount = 0;
     let failedCount = 0;
 
-    const upsertFlowstageAudio = async (fsAudio: FlowstageAudio) => {
-      let query = supabase
+    const flowstageSectionRows = (fsAudio: FlowstageAudio) => {
+      const sections =
+        fsAudio.sections?.length > 0
+          ? fsAudio.sections
+          : [
+              {
+                id: `${fsAudio.id}:full`,
+                name: "Full track",
+                start_time: 0,
+                end_time: fsAudio.duration,
+              },
+            ];
+
+      return sections.map((section) => {
+        const start = section.start_time ?? 0;
+        const end = section.end_time ?? fsAudio.duration;
+        const sectionName = section.name || "Section";
+        const isFullTrack = sectionName.toLowerCase() === "full track";
+        return {
+          flowstageUuid: fsAudio.id,
+          sectionKey: `${fsAudio.id}:${start}:${end}`,
+          name: isFullTrack ? fsAudio.name : `${fsAudio.name} — ${sectionName}`,
+          duration: Math.max(0, end - start),
+          url: fsAudio.url ?? null,
+          startTime: start,
+          endTime: end,
+        };
+      });
+    };
+
+    const upsertFlowstageAudioSection = async (
+      section: ReturnType<typeof flowstageSectionRows>[number]
+    ) => {
+      const { data: existingRows } = await supabase
         .from("audios")
         .select("id, url")
-        .eq("flowstage_uuid", fsAudio.id)
-        .eq("user_id", currentUserId);
+        .eq("flowstage_uuid", section.flowstageUuid)
+        .eq("user_id", currentUserId)
+        .eq("start_time", section.startTime)
+        .eq("end_time", section.endTime)
+        .limit(1);
 
-      const { data: existing } = await query.maybeSingle();
+      const existing = existingRows?.[0];
 
       let audioDbId: number;
-      let hasUrl = !!existing?.url;
-
-      const firstSection = fsAudio.sections?.[0];
 
       if (existing) {
         const { error } = await supabase
           .from("audios")
           .update({
-            name: fsAudio.name,
-            song_duration: fsAudio.duration,
-            start_time: firstSection?.start_time ?? null,
-            end_time: firstSection?.end_time ?? null,
+            name: section.name,
+            song_duration: section.duration,
+            url: section.url,
+            start_time: section.startTime,
+            end_time: section.endTime,
           })
           .eq("id", existing.id)
           .eq("user_id", currentUserId);
@@ -1513,11 +1556,12 @@ export default function Sidebar() {
         const { data: inserted, error } = await supabase
           .from("audios")
           .insert({
-            flowstage_uuid: fsAudio.id,
-            name: fsAudio.name,
-            song_duration: fsAudio.duration,
-            start_time: firstSection?.start_time ?? null,
-            end_time: firstSection?.end_time ?? null,
+            flowstage_uuid: section.flowstageUuid,
+            name: section.name,
+            song_duration: section.duration,
+            url: section.url,
+            start_time: section.startTime,
+            end_time: section.endTime,
             user_id: currentUserId,
           })
           .select("id")
@@ -1528,17 +1572,9 @@ export default function Sidebar() {
           return;
         }
         audioDbId = inserted.id;
-        hasUrl = false;
       }
 
-      if (!hasUrl && fsAudio.url) {
-        await supabase
-          .from("audios")
-          .update({ url: fsAudio.url })
-          .eq("id", audioDbId)
-          .eq("user_id", currentUserId);
-      }
-
+      void audioDbId;
       syncedCount++;
     };
 
@@ -1554,8 +1590,9 @@ export default function Sidebar() {
         return;
       }
 
-      for (const fsAudio of allAudios) {
-        await upsertFlowstageAudio(fsAudio);
+      const allSections = allAudios.flatMap(flowstageSectionRows);
+      for (const section of allSections) {
+        await upsertFlowstageAudioSection(section);
       }
 
       if (syncedCount === 0 && failedCount > 0) {
@@ -1620,8 +1657,8 @@ export default function Sidebar() {
       }
 
       setSyncVersion((v) => v + 1);
-      setFlowstageAudioOrder(allAudios.map((audio) => audio.id));
-      setLastSyncMessage(`Synced ${syncedCount} audio${syncedCount === 1 ? "" : "s"} from Flowstage.`);
+      setFlowstageAudioOrder(allSections.map((section) => section.sectionKey));
+      setLastSyncMessage(`Synced ${syncedCount} audio section${syncedCount === 1 ? "" : "s"} from Flowstage.`);
     } catch (err) {
       console.error("[Sync] Sync failed:", err);
       setLastSyncError(err instanceof Error ? err.message : "Sync failed");
@@ -1642,7 +1679,7 @@ export default function Sidebar() {
   ];
 
   return (
-    <aside className="w-[260px] flex-shrink-0 bg-white border-r border-sidebar-border flex flex-col h-full select-none">
+    <aside className="w-[260px] flex-shrink-0 bg-white border-r border-sidebar-border flex flex-col h-full select-none overflow-y-auto">
       {/* Spacer for hamburger menu */}
       <div className="h-[52px] flex-shrink-0" />
 
@@ -1712,7 +1749,7 @@ export default function Sidebar() {
       </CollapsibleSection>
 
       {/* Audio Bucket */}
-      <CollapsibleSection title="Audio bucket" defaultOpen={false} flex>
+      <CollapsibleSection title="Audio bucket" defaultOpen={false}>
         <AudioBucket reloadKey={syncVersion} flowstageOrder={flowstageAudioOrder} />
       </CollapsibleSection>
 

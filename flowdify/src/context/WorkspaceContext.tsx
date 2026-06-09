@@ -1110,6 +1110,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }
     ) => {
       if (kindName === "audios" && bucketFile.type === "audio" && bucketFile.dbAudioId) {
+        const { data: existingLinks } = await supabase
+          .from("node_audios")
+          .select("id")
+          .eq("node_id", nodeId);
+
+        if (existingLinks && existingLinks.length > 0) {
+          await Promise.all(existingLinks.map((link) => removeNodeAudio(link.id)));
+        }
+
         const { data: linkRow, error: linkErr } = await supabase
           .from("node_audios")
           .insert({ node_id: nodeId, audio_id: bucketFile.dbAudioId })
