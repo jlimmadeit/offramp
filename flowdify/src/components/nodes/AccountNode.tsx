@@ -264,8 +264,29 @@ export default function AccountNode({
       return;
     }
 
-    const member = dbMembers[Math.floor(Math.random() * dbMembers.length)];
-    const account = member.accounts;
+    const member = dbMembers[Math.floor(Math.random() * dbMembers.length)] as
+      | {
+          account_id: number;
+          accounts:
+            | {
+                id: number;
+                bundle_id: string | null;
+                bundle_team_id: string | null;
+                platform: string | null;
+                username: string | null;
+              }
+            | Array<{
+                id: number;
+                bundle_id: string | null;
+                bundle_team_id: string | null;
+                platform: string | null;
+                username: string | null;
+              }>;
+        }
+      | undefined;
+    const account = Array.isArray(member?.accounts)
+      ? member?.accounts[0]
+      : member?.accounts;
     if (!account?.bundle_id || !account?.bundle_team_id) {
       console.warn("[Account] Selected account missing bundle IDs");
       return;
@@ -286,7 +307,7 @@ export default function AccountNode({
         const ts = new Date(post.scheduled_time);
         const day = ts.toISOString().split("T")[0]!;
         if (!slotsByDay[day]) slotsByDay[day] = new Set<number>();
-        const slotIdx = ts.getHours() >= SLOT_HOURS[1] ? 1 : 0;
+        const slotIdx = ts.getHours() >= SLOT_HOURS[1]! ? 1 : 0;
         slotsByDay[day]!.add(slotIdx);
       }
     }
